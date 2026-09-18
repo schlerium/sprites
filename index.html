@@ -60,9 +60,61 @@
     #actionCluster { bottom: 14vh; right: 24px; }
     #metaCluster { bottom: 8vh; }
   }
+
+  /* Character select screen */
+  #charSelect {
+    position: fixed; inset: 0; z-index: 1000;
+    background: radial-gradient(circle at center, #1e3a24 0%, #0a1a0d 100%);
+    display: flex; align-items: center; justify-content: center;
+    color: #eafbe6;
+  }
+  #charSelectPanel { text-align: center; padding: 20px; max-width: 420px; width: 90%; }
+  #charSelectPanel h2 { margin: 0 0 4px; font-size: 20px; letter-spacing: 1px; }
+  #charSelectSub { margin: 0 0 20px; font-size: 12px; opacity: 0.6; }
+  #charOptions { display: flex; gap: 16px; justify-content: center; margin-bottom: 20px; }
+  .charOption {
+    width: 130px; padding: 14px 8px; border-radius: 12px;
+    border: 2px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.06);
+    cursor: pointer; transition: border-color 0.15s, background 0.15s;
+  }
+  .charOption:hover { background: rgba(255,255,255,0.12); }
+  .charOption.selected { border-color: #7CFC9E; background: rgba(124,252,158,0.15); }
+  .charOption .thumbWrap {
+    width: 84px; height: 84px; margin: 0 auto 10px; border-radius: 8px;
+    background: rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .charOption img { width: 42px; height: 56px; object-fit: contain; image-rendering: pixelated; }
+  .charOption span { font-size: 12px; font-weight: 600; letter-spacing: 0.5px; }
+  #charSelectStatus { font-size: 11px; opacity: 0.55; margin-bottom: 14px; min-height: 14px; }
+  #btnStartGame {
+    background: #7CFC9E; color: #0a1a0d; border: none; border-radius: 8px;
+    font-weight: 700; font-size: 14px; letter-spacing: 1px; padding: 12px 36px;
+    cursor: pointer; opacity: 0.4; pointer-events: none; transition: opacity 0.15s;
+  }
+  #btnStartGame:not(:disabled) { opacity: 1; pointer-events: auto; }
 </style>
 </head>
 <body>
+
+<div id="charSelect">
+  <div id="charSelectPanel">
+    <h2>CHOOSE YOUR CHARACTER</h2>
+    <p id="charSelectSub">Pick a sprite, then press start</p>
+    <div id="charOptions">
+      <div class="charOption" data-sprite="a">
+        <div class="thumbWrap"><img src="https://raw.githubusercontent.com/schlerium/sprites/main/MV1.png" alt="Sprite A"></div>
+        <span>SPRITE A</span>
+      </div>
+      <div class="charOption" data-sprite="b">
+        <div class="thumbWrap"><img src="https://raw.githubusercontent.com/schlerium/sprites/main/BF0.png" alt="Sprite B"></div>
+        <span>SPRITE B</span>
+      </div>
+    </div>
+    <div id="charSelectStatus">Connecting to server…</div>
+    <button id="btnStartGame" disabled>START</button>
+  </div>
+</div>
 
 <div id="viewport">
   <canvas id="screen" width="240" height="160"></canvas>
@@ -104,6 +156,10 @@
   </div>
 </div>
 
+<!-- Firebase (Realtime Database) - powers the multiplayer sync -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
 <script>
 (function(){
   const canvas = document.getElementById('screen');
@@ -112,7 +168,6 @@
 
   const W = 240, H = 160, TILE = 4;
   const SPRITE_W = 21, SPRITE_H = 28;
-  const SPRITE_BASE = "https://raw.githubusercontent.com/schlerium/sprites/main/";
 
   function hash2(x, y){
     let h = (x * 374761393 + y * 668265263) ^ ((x * 374761393 + y * 668265263) >> 13);
@@ -165,24 +220,132 @@
     if (e.key === 'ArrowRight') keys.right = false;
   });
 
-  function makeFrame(file){
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = SPRITE_BASE + file;
-    return img;
-  }
-
-  const anims = {
-    down:  [makeFrame("MV1.png"), makeFrame("MV2.png"), makeFrame("MV1.png"), makeFrame("MV3.png")],
-    up:    [makeFrame("MB1.png"), makeFrame("MB2.png"), makeFrame("MB1.png"), makeFrame("MB3.png")],
-    left:  [makeFrame("ML0.png"), makeFrame("ML1.png"), makeFrame("ML0.png"), makeFrame("ML2.png")],
-    right: [makeFrame("MR0.png"), makeFrame("MR1.png"), makeFrame("MR0.png"), makeFrame("MR2.png")]
+  // ---------- Sprite sets ----------
+  // Each sprite has its own base URL + 4 walk frames per direction.
+  // Sprite A is already wired up to your existing hosted sprites.
+  // Sprite B is left blank ("") for you to fill in with your own paths.
+  const SPRITE_SETS = {
+    a: {
+      base: "https://raw.githubusercontent.com/schlerium/sprites/main/",
+      down:  ["MV1.png", "MV2.png", "MV1.png", "MV3.png"],
+      up:    ["MB1.png", "MB2.png", "MB1.png", "MB3.png"],
+      left:  ["ML0.png", "ML1.png", "ML0.png", "ML2.png"],
+      right: ["MR0.png", "MR1.png", "MR0.png", "MR2.png"]
+    },
+    b: {
+      base: "https://raw.githubusercontent.com/schlerium/sprites/main/",
+      down:  ["BF0.png", "BF1.png", "BF0.png", "BF2.png"],
+      up:    ["BB0.png", "BB1.png", "BB0.png", "BB2.png"],
+      left:  ["BL0.png", "BL1.png", "BL0.png", "BL2.png"],
+      right: ["BR0.png", "BR1.png", "BR0.png", "BR2.png"]
+    }
   };
 
+  function makeFrame(base, file){
+    if (!file) return null;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = base + file;
+    return img;
+  }
+  function buildAnims(setDef){
+    const o = {};
+    ['down','up','left','right'].forEach(dir => {
+      o[dir] = setDef[dir].map(f => makeFrame(setDef.base, f));
+    });
+    return o;
+  }
+  const animsBySprite = { a: buildAnims(SPRITE_SETS.a), b: buildAnims(SPRITE_SETS.b) };
+
+  let mySprite = 'a';
   let walkIndex = 0, walkAcc = 0, facing = 'down', turning = false;
   const WALK_FRAME_MS = 1000 / 7;
   const SPRITE_X = Math.floor((W - SPRITE_W) / 2);
   const SPRITE_Y = Math.floor((H - SPRITE_H) / 2);
+
+  // ---------- Multiplayer (Firebase Realtime Database) ----------
+  // 1. Create a free project at https://console.firebase.google.com
+  // 2. Enable "Realtime Database" (start in test mode, then lock down rules later)
+  // 3. Paste your project's config values below
+  const firebaseConfig = {
+    apiKey: "AIzaSyBz6q7Cs2lVNn5lf2bSKKLVfI7Pb6HF3Dg",
+    authDomain: "gba-prototype.firebaseapp.com",
+    databaseURL: "https://gba-prototype-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "gba-prototype",
+    storageBucket: "gba-prototype.firebasestorage.app",
+    messagingSenderId: "1052035539915",
+    appId: "1:1052035539915:web:3e38c49b96daa2eb374c4e"
+ 
+  };
+
+  let playerId = localStorage.getItem('gba_player_id');
+  if (!playerId) {
+    playerId = 'p_' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem('gba_player_id', playerId);
+  }
+
+  let playerRef = null, playersRef = null;
+  const remotePlayers = {};
+  const STALE_MS = 8000;
+
+  function initFirebase(){
+    const statusEl = document.getElementById('charSelectStatus');
+    try {
+      if (!firebaseConfig.apiKey || !firebaseConfig.databaseURL) {
+        statusEl.textContent = 'Multiplayer not configured (single player only)';
+        return;
+      }
+      firebase.initializeApp(firebaseConfig);
+      const db = firebase.database();
+      playersRef = db.ref('players');
+      playerRef = db.ref('players/' + playerId);
+      playerRef.onDisconnect().remove();
+
+      playersRef.on('value', (snap) => {
+        const val = snap.val() || {};
+        for (const id in val) {
+          if (id === playerId) continue;
+          remotePlayers[id] = val[id];
+        }
+        for (const id in remotePlayers) {
+          if (!val[id]) delete remotePlayers[id];
+        }
+      });
+
+      statusEl.textContent = 'Connected';
+    } catch (err) {
+      console.error('Firebase init failed:', err);
+      statusEl.textContent = 'Offline (multiplayer unavailable)';
+    }
+  }
+  initFirebase();
+
+  function startNetworkSync(){
+    if (!playerRef) return;
+    setInterval(() => {
+      playerRef.set({
+        x: camX, y: camY,
+        facing: facing, walkIndex: walkIndex,
+        sprite: mySprite,
+        t: Date.now()
+      });
+    }, 100);
+  }
+
+  // ---------- Character select ----------
+  document.querySelectorAll('.charOption').forEach((el) => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.charOption').forEach(o => o.classList.remove('selected'));
+      el.classList.add('selected');
+      mySprite = el.dataset.sprite;
+      document.getElementById('btnStartGame').disabled = false;
+    });
+  });
+  document.getElementById('btnStartGame').addEventListener('click', () => {
+    document.getElementById('charSelect').style.display = 'none';
+    startNetworkSync();
+    requestAnimationFrame(loop);
+  });
 
   function update(){
     let dx = 0, dy = 0;
@@ -213,6 +376,15 @@
     camY += dy * SPEED;
   }
 
+  function drawSpriteAt(spriteKey, dir, frameIdx, px, py){
+    const set = animsBySprite[spriteKey] || animsBySprite.a;
+    const dirAnim = set[dir] || set.down;
+    const frame = dirAnim[frameIdx] || dirAnim[0];
+    if (frame && frame.complete && frame.naturalWidth > 0){
+      ctx.drawImage(frame, px, py, SPRITE_W, SPRITE_H);
+    }
+  }
+
   function draw(){
     const startTX = Math.floor(camX / TILE) - 1;
     const startTY = Math.floor(camY / TILE) - 1;
@@ -231,10 +403,21 @@
       }
     }
 
-    const curFrame = (anims[facing] || anims.down)[walkIndex];
-    if (curFrame && curFrame.complete && curFrame.naturalWidth > 0){
-      ctx.drawImage(curFrame, SPRITE_X, SPRITE_Y, SPRITE_W, SPRITE_H);
+    // Remote players (drawn relative to our camera position)
+    const now = Date.now();
+    for (const id in remotePlayers){
+      const p = remotePlayers[id];
+      if (!p || now - (p.t || 0) > STALE_MS) continue;
+      const px = Math.round(SPRITE_X + (p.x - camX));
+      const py = Math.round(SPRITE_Y + (p.y - camY));
+      if (px > -SPRITE_W && px < W && py > -SPRITE_H && py < H){
+        drawSpriteAt(p.sprite || 'a', p.facing || 'down', p.walkIndex || 0, px, py);
+      }
     }
+
+    // Local player (always centered on screen)
+    drawSpriteAt(mySprite, facing, walkIndex, SPRITE_X, SPRITE_Y);
+
     document.getElementById('coords').textContent = 'x:' + Math.round(camX) + ' y:' + Math.round(camY);
   }
 
@@ -243,7 +426,7 @@
     draw();
     requestAnimationFrame(loop);
   }
-  requestAnimationFrame(loop);
+  // Loop is kicked off once the player picks a sprite and hits START (see character select above)
 })();
 </script>
 </body>
