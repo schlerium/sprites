@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Infinite Grassland</title>
+<style>
+  :root {
+    --btn-glass: rgba(255, 255, 255, 0.12);
+    --btn-glass-active: rgba(255, 255, 255, 0.32);
+    --btn-border: rgba(255, 255, 255, 0.38);
+    --btn-border-active: rgba(255, 255, 255, 0.75);
+    --btn-glyph: rgba(255, 255, 255, 0.65);
+    --btn-glyph-active: #ffffff;
+  }
+
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    background: #000;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  #viewport {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+  }
+
+  canvas#screen {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    aspect-ratio: 240 / 160;
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    background: #3a6b2a;
+  }
+
+  #overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    z-index: 10;
+  }
+
+  .interactive {
+    pointer-events: auto;
+    touch-action: none;
+  }
+
+  #topBar {
+    position: absolute;
+    top: 8px;
+    left: 12px;
+    right: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .nav-group {
+    display: flex;
+    gap: 12px;
+  }
+
+  .icon-btn {
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--btn-glyph);
+    font-size: 20px;
+    font-weight: bold;
+    border-radius: 6px;
+    transition: transform 0.05s ease;
+  }
+  .icon-btn:active, .icon-btn.active {
+    color: var(--btn-glyph-active);
+    background: var(--btn-glass);
+    transform: scale(0.92);
+  }
+
+  .shoulder {
+    position: absolute;
+    top: 26%;
+    width: 90px;
+    height: 44px;
+    background: var(--btn-glass);
+    border: 2px solid var(--btn-border);
+    display: flex;
+    align-items: center;
+    color: var(--btn-glyph);
+    font-weight: 800;
+    font-size: 24px;
+    letter-spacing: 1px;
+    transition: transform 0.05s ease;
+  }
+  #btnL {
+    left: 0;
+    border-left: none;
+    border-radius: 0 24px 24px 0;
+    justify-content: flex-end;
+    padding-right: 22px;
+  }
+  #btnR {
+    right: 0;
+    border-right: none;
+    border-radius: 24px 0 0 24px;
+    justify-content: flex-start;
+    padding-left: 22px;
+  }
+  .shoulder:active, .shoulder.active {
+    background: var(--btn-glass-active);
+    border-color: var(--btn-border-active);
+    color: var(--btn-glyph-active);
+    transform: scale(0.96);
+  }
+
+  #dpad {
+    position: absolute;
+    bottom: 24px;
+    left: 24px;
+    width: 144px;
+    height: 144px;
+    display: grid;
+    grid-template-columns: 48px 48px 48px;
+    grid-template-rows: 48px 48px 48px;
+  }
+  .dbtn {
+    background: var(--btn-glass);
+    border: 2px solid var(--btn-border);
+    color: var(--btn-glyph);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+  }
+  #up {
+    grid-column: 2;
+    grid-row: 1;
+    border-radius: 10px 10px 0 0;
+    border-bottom: none;
+  }
+  #left {
+    grid-column: 1;
+    grid-row: 2;
+    border-radius: 10px 0 0 10px;
+    border-right: none;
+  }
+  #dpad-center {
+    grid-column: 2;
+    grid-row: 2;
+    background: var(--btn-glass);
+    border: none;
+  }
+  #right {
+    grid-column: 3;
+    grid-row: 2;
+    border-radius: 0 10px 10px 0;
+    border-left: none;
+  }
+  #down {
+    grid-column: 2;
+    grid-row: 3;
+    border-radius: 0 0 10px 10px;
+    border-top: none;
+  }
+  .dbtn:active, .dbtn.active {
+    background: var(--btn-glass-active);
+    border-color: var(--btn-border-active);
+    color: var(--btn-glyph-active);
+  }
+
+  #actionCluster {
+    position: absolute;
+    bottom: 24px;
+    right: 24px;
+    width: 154px;
+    height: 144px;
+  }
+  .abtn {
+    position: absolute;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: var(--btn-glass);
+    border: 2px solid var(--btn-border);
+    color: var(--btn-glyph);
+    font-size: 26px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.05s ease;
+  }
+  #btnB {
+    bottom: 4px;
+    left: 4px;
+  }
+  #btnA {
+    top: 4px;
+    right: 4px;
+  }
+  .abtn:active, .abtn.active {
+    background: var(--btn-glass-active);
+    border-color: var(--btn-border-active);
+    color: var(--btn-glyph-active);
+    transform: scale(0.92);
+  }
+
+  #metaCluster {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 32px;
+  }
+  .pill-btn {
+    width: 68px;
+    height: 20px;
+    background: var(--btn-glass);
+    border: 1.5px solid var(--btn-border);
+    border-radius: 12px;
+    color: var(--btn-glyph);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: rotate(-25deg);
+  }
+  .pill-btn:active, .pill-btn.active {
+    background: var(--btn-glass-active);
+    border-color: var(--btn-border-active);
+    color: var(--btn-glyph-active);
+    transform: rotate(-25deg) scale(0.92);
+  }
+
+  #coords {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 11px;
+    font-family: monospace;
+    letter-spacing: 1px;
+  }
+</style>
+</head>
+<body>
+
+<div id="viewport">
+  <canvas id="screen" width="240" height="160"></canvas>
+
+  <div id="overlay">
+    <div id="topBar">
+      <div class="nav-group">
+        <div class="icon-btn interactive" id="btnSave">&#x2913;</div>
+        <div class="icon-btn interactive" id="btnLoad">&#x2912;</div>
+      </div>
+      <div class="nav-group">
+        <div class="icon-btn interactive" id="btnFastForward">&#x25B7;&#x25B7;</div>
+        <div class="icon-btn interactive" id="btnMenu">&#x2261;</div>
+      </div>
+    </div>
+
+    <div class="shoulder interactive" id="btnL">L</div>
+    <div class="shoulder interactive" id="btnR">R</div>
+
+    <div id="dpad">
+      <div class="dbtn interactive" id="up">&#9650;</div>
+      <div class="dbtn interactive" id="left">&#9664;</div>
+      <div id="dpad-center"></div>
+      <div class="dbtn interactive" id="right">&#9654;</div>
+      <div class="dbtn interactive" id="down">&#9660;</div>
+    </div>
+
+    <div id="actionCluster">
+      <div class="abtn interactive" id="btnB">B</div>
+      <div class="abtn interactive" id="btnA">A</div>
+    </div>
+
+    <div id="metaCluster">
+      <div class="pill-btn interactive" id="btnSelect">SELECT</div>
+      <div class="pill-btn interactive" id="btnStart">START</div>
+    </div>
+
+    <div id="coords">x:0 y:0</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function requestLandscapeLock(){
+    if (screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('landscape').catch(() => {});
+    }
+  }
+  window.addEventListener('pointerdown', requestLandscapeLock, { once: true });
+
+  const canvas = document.getElementById('screen');
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  const W = 240, H = 160;
+  const TILE = 4;
+
+  function hash2(x, y){
+    let h = x * 374761393 + y * 668265263;
+    h = (h ^ (h >> 13)) * 1274126177;
+    h = h ^ (h >> 16);
+    return (h >>> 0) / 4294967295;
+  }
+
+  const BASE = [58, 107, 42];
+  const SHADE_LIGHT = [70, 122, 51];
+  const SHADE_DARK = [46, 90, 33];
+  const BLADE = [83, 140, 60];
+
+  function tileColor(tx, ty){
+    const r = hash2(tx, ty);
+    if (r < 0.06) return SHADE_DARK;
+    if (r < 0.12) return SHADE_LIGHT;
+    if (r < 0.16) return BLADE;
+    return BASE;
+  }
+
+  function rgb(c){ return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; }
+
+  let camX = 0, camY = 0;
+  const SPEED = 1.0;
+
+  const keys = { up:false, down:false, left:false, right:false };
+
+  function bindHold(el, dir){
+    const set = (v) => (e) => { 
+      keys[dir] = v; 
+      el.classList.toggle('active', v); 
+      if(e) e.preventDefault(); 
+    };
+    el.addEventListener('pointerdown', set(true));
+    el.addEventListener('pointerup', set(false));
+    el.addEventListener('pointerleave', set(false));
+    el.addEventListener('pointercancel', set(false));
+  }
+  bindHold(document.getElementById('up'), 'up');
+  bindHold(document.getElementById('down'), 'down');
+  bindHold(document.getElementById('left'), 'left');
+  bindHold(document.getElementById('right'), 'right');
+
+  function bindHook(id, onDown, onUp){
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      el.classList.add('active');
+      if (onDown) onDown();
+    });
+    const release = (e) => {
+      if (e) e.preventDefault();
+      el.classList.remove('active');
+      if (onUp) onUp();
+    };
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointerleave', release);
+    el.addEventListener('pointercancel', release);
+  }
+
+  bindHook('btnA', () => {}, () => {});
+  bindHook('btnB', () => {}, () => {});
+  bindHook('btnL', () => {}, () => {});
+  bindHook('btnR', () => {}, () => {});
+  bindHook('btnSelect', () => {}, () => {});
+  bindHook('btnStart', () => {}, () => {});
+  bindHook('btnSave', () => {}, () => {});
+  bindHook('btnLoad', () => {}, () => {});
+  bindHook('btnFastForward', () => {}, () => {});
+  bindHook('btnMenu', () => {}, () => {});
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp'){ keys.up = true; e.preventDefault(); }
+    if (e.key === 'ArrowDown'){ keys.down = true; e.preventDefault(); }
+    if (e.key === 'ArrowLeft'){ keys.left = true; e.preventDefault(); }
+    if (e.key === 'ArrowRight'){ keys.right = true; e.preventDefault(); }
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'ArrowUp'){ keys.up = false; }
+    if (e.key === 'ArrowDown'){ keys.down = false; }
+    if (e.key === 'ArrowLeft'){ keys.left = false; }
+    if (e.key === 'ArrowRight'){ keys.right = false; }
+  });
+
+  const coordsEl = document.getElementById('coords');
+
+  // Expanded character bounding dimensions (21x28px)
+  const SPRITE_W = 21, SPRITE_H = 28;
+
+  const SPRITE_BASE = "https://raw.githubusercontent.com/schlerium/sprites/main/";
+
+  function makeFrame(filename){
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = SPRITE_BASE + filename;
+    return img;
+  }
+
+  // Down
+  const FRAME_MV1 = makeFrame("MV1.png");
+  const FRAME_MV2 = makeFrame("MV2.png");
+  const FRAME_MV3 = makeFrame("MV3.png");
+
+  // Up
+  const FRAME_MB1 = makeFrame("MB1.png");
+  const FRAME_MB2 = makeFrame("MB2.png");
+  const FRAME_MB3 = makeFrame("MB3.png");
+
+  // Left
+  const ML0 = makeFrame("ML0.png");
+  const ML1 = makeFrame("ML1.png");
+  const ML2 = makeFrame("ML2.png");
+
+  // Right
+  const MR0 = makeFrame("MR0.png");
+  const MR1 = makeFrame("MR1.png");
+  const MR2 = makeFrame("MR2.png");
+
+  const walkSeqDown = [FRAME_MV1, FRAME_MV2, FRAME_MV1, FRAME_MV3];
+  const walkSeqUp = [FRAME_MB1, FRAME_MB2, FRAME_MB1, FRAME_MB3];
+  const walkSeqLeft = [ML0, ML1, ML0, ML2];
+  const walkSeqRight = [MR0, MR1, MR0, MR2];
+
+  const anims = {
+    down: walkSeqDown,
+    up: walkSeqUp,
+    left: walkSeqLeft,
+    right: walkSeqRight
+  };
+
+  let walkIndex = 0;
+  let walkAcc = 0;
+  const WALK_FRAME_MS = 1000 / 7;
+
+  let facing = 'down';
+  let turning = false;
+
+  // Recalculate sprite center based on 21x28 dimensions
+  const SPRITE_X = Math.floor((W - SPRITE_W) / 2);
+  const SPRITE_Y = Math.floor((H - SPRITE_H) / 2);
+
+  function update(){
+    let dx = 0, dy = 0;
+    if (keys.left) dx -= 1;
+    if (keys.right) dx += 1;
+    if (keys.up) dy -= 1;
+    if (keys.down) dy += 1;
+    if (dx !== 0 && dy !== 0){
+      dx *= 0.7071; dy *= 0.7071;
+    }
+
+    const moveDir = keys[facing] ? facing : (keys.up ? 'up' : (keys.down ? 'down' : (keys.left ? 'left' : (keys.right ? 'right' : null))));
+
+    if (moveDir){
+      if (facing !== moveDir){
+        facing = moveDir;
+        turning = true;
+        walkIndex = 0;
+        walkAcc = 0;
+        dx = 0; dy = 0;
+      } else if (turning){
+        turning = false;
+        dx = 0; dy = 0;
+      } else {
+        walkAcc += FRAME_MS;
+        if (walkAcc >= WALK_FRAME_MS){
+          walkAcc -= WALK_FRAME_MS;
+          walkIndex = (walkIndex + 1) % 4;
+        }
+      }
+    } else {
+      walkIndex = 0;
+      walkAcc = 0;
+      turning = false;
+    }
+
+    camX += dx * SPEED;
+    camY += dy * SPEED;
+  }
+
+  function draw(){
+    const startTX = Math.floor(camX / TILE) - 1;
+    const startTY = Math.floor(camY / TILE) - 1;
+    const tilesX = Math.ceil(W / TILE) + 2;
+    const tilesY = Math.ceil(H / TILE) + 2;
+
+    const offX = -(camX - startTX * TILE);
+    const offY = -(camY - startTY * TILE);
+
+    for (let j = 0; j < tilesY; j++){
+      const ty = startTY + j;
+      const py = Math.round(offY + j * TILE);
+      for (let i = 0; i < tilesX; i++){
+        const tx = startTX + i;
+        const px = Math.round(offX + i * TILE);
+        ctx.fillStyle = rgb(tileColor(tx, ty));
+        ctx.fillRect(px, py, TILE, TILE);
+      }
+    }
+
+    const activeSeq = anims[facing] || walkSeqDown;
+    const currentFrame = activeSeq[walkIndex];
+    if (currentFrame && currentFrame.complete && currentFrame.naturalWidth > 0){
+      ctx.drawImage(currentFrame, SPRITE_X, SPRITE_Y, SPRITE_W, SPRITE_H);
+    }
+
+    coordsEl.textContent = 'x:' + Math.round(camX) + ' y:' + Math.round(camY);
+  }
+
+  const FRAME_MS = 1000 / 60;
+  let last = performance.now();
+  let acc = 0;
+
+  function loop(now){
+    acc += now - last;
+    last = now;
+    let steps = 0;
+    while (acc >= FRAME_MS && steps < 5){
+      update();
+      acc -= FRAME_MS;
+      steps++;
+    }
+    draw();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
