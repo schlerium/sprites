@@ -281,7 +281,7 @@
   // it happening at all in the first place).
   let camX = Math.floor((Math.random() - 0.5) * 40);
   let camY = Math.floor((Math.random() - 0.5) * 40);
-  const SPEED = 1.0;
+  const SPEED = 1.0; // world px moved per frame WHILE a GBA-style step is in progress (see STEP_SIZE / update() below) — same value as before, so overall walk speed feels unchanged
   const keys = { up: false, down: false, left: false, right: false };
 
   function bindHold(el, dir){
@@ -434,7 +434,220 @@
     if (e.key === 'a' || e.key === 'z' || e.key === 'Enter') trySaveCheckpoint();
   });
   // =====================================================================
-  //  END CHECKPOINTS block
+  //  WORLD ASSETS — buildings/houses made of 16x16 blocks, GBA-style.
+  //  Self-contained, same spirit as the CHECKPOINTS block above. To remove
+  //  it: delete this whole block, delete the drawWorldAssets()/
+  //  drawEnterOverlay() calls inside draw() (marked "WORLD ASSETS:"), and
+  //  delete the collidesWithWorldAssets(...) check + entering-sequence
+  //  hooks inside update() (also marked "WORLD ASSETS:").
+  //
+  //  HOW TO ADD/EDIT A BUILDING — everything lives in WORLD_ASSET_ROSTER
+  //  right below:
+  //    - x, y: the world-px position of the TOP-LEFT PIXEL of block r1c1.
+  //      Every other block's position is calculated from this one point —
+  //      move a whole building by only ever changing x/y.
+  //    - rows, cols: how many 16x16 blocks tall/wide the building is
+  //      (the sample "Pokemart" below is 4 rows x 4 cols, matching your
+  //      reference image).
+  //    - blocks: one entry per cell, named r{row}c{col} (1-indexed from the
+  //      top-left, so r1c1 is the top-left block, r4c3 is row 4 / column 3).
+  //      Each cell is { file, walkable, enter, enterFrames }:
+  //        file        — PNG filename, relative to this asset's `base` URL.
+  //                      Left "" for you to fill in; a colored placeholder
+  //                      square is drawn in its place until you do.
+  //        walkable    — can the player stand here? Defaults to false
+  //                      (solid) for any field you don't set, so you only
+  //                      need to mark the exceptions (like a doorway).
+  //        enter       — marks this block as a doorway: stepping onto it
+  //                      triggers the placeholder "enter" sequence below.
+  //        enterFrames — [] for now; a door-opening animation's PNG
+  //                      filenames would go here later.
+  //    - asset2 (further down) is an empty template — copy it, rename the
+  //      key, and fill in x/y/rows/cols/blocks to add a second building.
+  //
+  //  OVERLAP SAFETY: if two buildings' blocks are placed so they land on
+  //  the same 16x16 world tile, every block sharing that tile is marked
+  //  "conflicted" — it draws nothing at all (not even a placeholder) and
+  //  can't block or unblock movement, until you move one of them apart.
+  //  Check the browser console for a "WORLD ASSETS: overlap at..." warning
+  //  naming exactly which asset/block pairs collided.
+  // =====================================================================
+  const WORLD_TILE = 16; // WORLD ASSETS: size of one block in world px (matches the player's GBA MOVEMENT step size by design)
+
+  const WORLD_ASSET_ROSTER = [
+    {
+      key: 'asset1',
+      name: 'Pokemart',
+      base: 'https://raw.githubusercontent.com/schlerium/sprites/main/',        // WORLD ASSETS: paste the raw URL your block PNGs are hosted under (same idea as SPRITE_ROSTER's `base`) — leave '' until you have one
+      x: 48, y: 48,    // WORLD ASSETS: top-left pixel of r1c1 — move the whole building by editing just these two numbers
+      rows: 4, cols: 4,
+      blocks: {
+        r1c1: { file: 'shop11.png' }, r1c2: { file: 'shop12.png' }, r1c3: { file: 'shop13.png' }, r1c4: { file: 'shop14.png' },
+        r2c1: { file: 'shop21.png' }, r2c2: { file: 'shop22.png' }, r2c3: { file: 'shop23.png' }, r2c4: { file: 'shop24.png' },
+        r3c1: { file: 'shop31.png' }, r3c2: { file: 'shop32.png' }, r3c3: { file: 'shop33.png' }, r3c4: { file: 'shop34.png' },
+        r4c1: { file: 'shop41.png' }, r4c2: { file: 'shop42.png' },
+        r4c3: { file: 'shop43.png', walkable: true, enter: true, enterFrames: [] }, // WORLD ASSETS: the shop's door — only walkable+enterable block in this building
+        r4c4: { file: 'shop44.png' },
+      }
+    },
+    {
+      // WORLD ASSETS: template for the next building — copy this object,
+      // give it a new key, and fill in name/base/x/y/rows/cols/blocks.
+      // Left empty on purpose: rows/cols of 0 means it renders and blocks
+      // nothing until you configure it.
+      key: 'asset2',
+      name: '',
+      base: '',
+      x: 0, y: 0,
+      rows: 0, cols: 0,
+      blocks: {}
+    }
+  ];
+
+  // WORLD ASSETS: single ANCHOR POINT (not a box) used only for world-tile
+  // collision/entering — the horizontal center of the sprite, at foot
+  // height. This is DIFFERENT from hitboxOf()'s box, used for player-vs-
+  // player collision only.
+  //
+  // Why a point and not a same-size box: STEP_SIZE and WORLD_TILE are both
+  // 16, so this point moves by exactly one tile-width per step — it always
+  // lands inside exactly ONE 16x16 block, no matter what pixel "phase"
+  // your spawn/saved position happens to be on relative to a building's
+  // grid. A same-size 16x16 BOX doesn't have that guarantee: unless the
+  // player's position is perfectly phase-aligned with the building (an
+  // exact multiple of 16px apart), the box straddles two tiles by however
+  // many pixels it's off by, and a solid neighbor tile blocks you even
+  // while standing "on" an open one. That's the bug from the first fix —
+  // sizing the box to one tile wasn't enough, because it could still be a
+  // few px out of phase with the building's own grid. A point can't
+  // straddle anything: it's always inside exactly one tile.
+  function worldTileAnchorOf(worldX, worldY){
+    return { x: worldX + SPRITE_W / 2, y: worldY + SPRITE_H - WORLD_TILE / 2 };
+  }
+  function pointInBlock(px, py, b){
+    return px >= b.x && px < b.x + WORLD_TILE && py >= b.y && py < b.y + WORLD_TILE;
+  }
+  function worldBlockDefaults(b){
+    return Object.assign({ file: '', walkable: false, enter: false, enterFrames: [] }, b || {});
+  }
+  function makeWorldBlockImage(base, file){
+    if (!file) return null;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = (base || '') + file;
+    return img;
+  }
+
+  // WORLD ASSETS: flatten the roster into a single list of placed blocks
+  // with real world coordinates, and detect any tile overlaps while at it.
+  const WORLD_BLOCKS = [];
+  (function buildWorldBlocks(){
+    const tileMap = {}; // world "x,y" -> every block placed on that exact tile
+    WORLD_ASSET_ROSTER.forEach((asset) => {
+      if (!asset.rows || !asset.cols) return; // WORLD ASSETS: empty template entries (like asset2) are skipped entirely
+      for (let r = 1; r <= asset.rows; r++){
+        for (let c = 1; c <= asset.cols; c++){
+          const key = 'r' + r + 'c' + c;
+          const block = worldBlockDefaults(asset.blocks[key]);
+          const worldX = asset.x + (c - 1) * WORLD_TILE;
+          const worldY = asset.y + (r - 1) * WORLD_TILE;
+          const entry = {
+            assetKey: asset.key, blockKey: key,
+            x: worldX, y: worldY,
+            file: block.file, walkable: block.walkable, enter: block.enter, enterFrames: block.enterFrames,
+            img: makeWorldBlockImage(asset.base, block.file),
+            conflicted: false
+          };
+          const tileId = worldX + ',' + worldY;
+          (tileMap[tileId] || (tileMap[tileId] = [])).push(entry);
+          WORLD_BLOCKS.push(entry);
+        }
+      }
+    });
+    Object.keys(tileMap).forEach((tileId) => {
+      const claimants = tileMap[tileId];
+      if (claimants.length > 1){
+        claimants.forEach((b) => { b.conflicted = true; }); // WORLD ASSETS: overlap — hide + ignore for collision until fixed
+        console.warn('WORLD ASSETS: overlap at world tile (' + tileId + ') between: ' +
+          claimants.map((b) => b.assetKey + '/' + b.blockKey).join(', '));
+      }
+    });
+  })();
+
+  function drawWorldAssets(){
+    for (const b of WORLD_BLOCKS){
+      if (b.conflicted) continue; // WORLD ASSETS: overlapping placement — render nothing until it's fixed
+      const px = Math.round(SPRITE_X + (b.x - camX));
+      const py = Math.round(SPRITE_Y + (b.y - camY));
+      if (px <= -WORLD_TILE || px >= W || py <= -WORLD_TILE || py >= H) continue;
+      if (b.img && b.img.complete && b.img.naturalWidth > 0){
+        ctx.drawImage(b.img, px, py, WORLD_TILE, WORLD_TILE);
+      } else {
+        // WORLD ASSETS: placeholder while `file` is "" (or still loading) —
+        // green tint = walkable, gray tint = solid, so the layout (and the
+        // door) can be checked before any real art exists.
+        ctx.fillStyle = b.walkable ? 'rgba(120,220,140,0.35)' : 'rgba(120,140,160,0.35)';
+        ctx.fillRect(px, py, WORLD_TILE, WORLD_TILE);
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px + 0.5, py + 0.5, WORLD_TILE - 1, WORLD_TILE - 1);
+      }
+    }
+  }
+
+  // WORLD ASSETS: whole-tile collision, same "checked once, all-or-nothing"
+  // rule GBA MOVEMENT uses for players — a destination tile is either fully
+  // open or fully blocked, never partially.
+  function collidesWithWorldAssets(nextX, nextY){
+    const mineNext = worldTileAnchorOf(nextX, nextY);
+    for (const b of WORLD_BLOCKS){
+      if (b.conflicted || b.walkable) continue;
+      if (pointInBlock(mineNext.x, mineNext.y, b)) return true;
+    }
+    return false;
+  }
+  function findEnterBlockUnderPlayer(){
+    const mine = worldTileAnchorOf(camX, camY);
+    return WORLD_BLOCKS.find((b) => b.enter && !b.conflicted &&
+      pointInBlock(mine.x, mine.y, b)) || null;
+  }
+
+  // WORLD ASSETS: placeholder "enter a building" sequence. Stepping onto any
+  // block with enter:true (r4c3 above) fades the screen to black, then —
+  // since there's no interior mapped yet — sends the player back to the
+  // tile they were on right before stepping onto the door, and fades back
+  // in. Once real interiors exist, swap the teleport-back for actually
+  // loading/switching to that interior; enterFrames (currently []) is where
+  // a door-opening animation would play before the fade starts.
+  let entering = false, enterPhase = null, enterAlpha = 0, enterFadeAcc = 0;
+  let enterReturnX = 0, enterReturnY = 0;
+  const ENTER_FADE_MS = 350; // WORLD ASSETS: duration of each half (fade-out, fade-in) of the placeholder sequence
+
+  function updateEnterSequence(){
+    enterFadeAcc += 1000 / 60;
+    const t = Math.min(1, enterFadeAcc / ENTER_FADE_MS);
+    if (enterPhase === 'out'){
+      enterAlpha = t;
+      if (t >= 1){
+        camX = enterReturnX; camY = enterReturnY; // WORLD ASSETS: screen is fully black here — this is where a real interior would be swapped in instead
+        enterPhase = 'in'; enterFadeAcc = 0;
+      }
+    } else if (enterPhase === 'in'){
+      enterAlpha = 1 - t;
+      if (t >= 1){
+        entering = false; enterPhase = null; enterAlpha = 0;
+      }
+    }
+  }
+  function drawEnterOverlay(){
+    if (enterAlpha <= 0) return;
+    ctx.fillStyle = '#000';
+    ctx.globalAlpha = enterAlpha;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+  // =====================================================================
+  //  END WORLD ASSETS block
   // =====================================================================
 
   window.addEventListener('keydown', (e) => {
@@ -535,6 +748,10 @@
 
   let walkIndex = 0, walkAcc = 0, facing = 'down', turning = false;
   const WALK_FRAME_MS = 1000 / 7;
+  // GBA MOVEMENT: state for the current in-progress tile step (see update()
+  // further down, and the STEP_SIZE constant near it, for the full writeup).
+  let stepping = false;
+  let stepFromX = 0, stepFromY = 0, stepToX = 0, stepToY = 0, stepProgress = 0;
   const SPRITE_X = Math.floor((W - SPRITE_W) / 2);
   const SPRITE_Y = Math.floor((H - SPRITE_H) / 2);
 
@@ -805,46 +1022,98 @@
     requestAnimationFrame(loop);
   });
 
+  // =====================================================================
+  //  GBA MOVEMENT — ported from how Pokemon (GBA) moves the player:
+  //  1. Pressing a NEW direction just turns you to face it for one frame
+  //     (no movement yet) — that "turning" behavior already existed here.
+  //  2. Holding/pressing it again moves you exactly one whole tile
+  //     (STEP_SIZE world px). You cannot stop, or be stopped, mid-tile —
+  //     a step is all-or-nothing.
+  //  3. No diagonals: only one of up/down/left/right is ever acted on.
+  //  4. The destination tile is collision-checked ONCE, before the step
+  //     starts, as a single whole-tile decision (open or blocked) — never
+  //     re-checked pixel-by-pixel while sliding into it.
+  //  Point 4 is what fixes the "half open / half closed" hitbox bug: the
+  //  old code moved 1px at a time and re-ran the collision check every
+  //  single pixel, so a player could end up parked exactly on the
+  //  boundary line between an open pixel column and a blocked one. That
+  //  can't happen anymore — you're either standing on the tile you
+  //  started on, or you've fully arrived on the next one.
+  // =====================================================================
+  const STEP_SIZE = 16; // GBA MOVEMENT: world-px distance covered by one step (GBA's overworld tile size)
+
   function update(){
-    let dx = 0, dy = 0;
-    if (keys.left) dx -= 1;
-    if (keys.right) dx += 1;
-    if (keys.up) dy -= 1;
-    if (keys.down) dy += 1;
-    if (dx !== 0 && dy !== 0){ dx *= 0.7071; dy *= 0.7071; }
+    if (entering){
+      // WORLD ASSETS: mid placeholder enter-sequence — ignore all input
+      // until it finishes (see updateEnterSequence() in the WORLD ASSETS block).
+      updateEnterSequence();
+      return;
+    }
 
     const moveDir = keys[facing] ? facing : (keys.up ? 'up' : (keys.down ? 'down' : (keys.left ? 'left' : (keys.right ? 'right' : null))));
-    if (moveDir){
-      if (facing !== moveDir){
-        facing = moveDir; turning = true; walkIndex = 0; walkAcc = 0; dx = 0; dy = 0;
-      } else if (turning){
-        turning = false; dx = 0; dy = 0;
-      } else {
-        walkAcc += 1000 / 60;
-        if (walkAcc >= WALK_FRAME_MS){
-          walkAcc -= WALK_FRAME_MS;
-          walkIndex = (walkIndex + 1) % 4;
-        }
+
+    if (stepping){
+      // GBA MOVEMENT: mid-step — keep sliding toward the tile we already
+      // committed to. Input is ignored until this step finishes, exactly
+      // like Pokemon GBA (you can't change direction mid-tile).
+      stepProgress += SPEED / STEP_SIZE;
+      walkAcc += 1000 / 60;
+      if (walkAcc >= WALK_FRAME_MS){
+        walkAcc -= WALK_FRAME_MS;
+        walkIndex = (walkIndex + 1) % 4;
       }
-    } else {
-      walkIndex = 0; walkAcc = 0; turning = false;
+      if (stepProgress >= 1){
+        camX = stepToX; camY = stepToY; // snap exactly onto the tile, no overshoot/rounding drift
+        stepping = false; stepProgress = 0;
+        // WORLD ASSETS: just arrived on a new tile — if it's a doorway,
+        // kick off the placeholder enter sequence (see WORLD ASSETS block).
+        const enterBlock = findEnterBlockUnderPlayer();
+        if (enterBlock){
+          entering = true; enterPhase = 'out'; enterFadeAcc = 0; enterAlpha = 0;
+          enterReturnX = stepFromX; enterReturnY = stepFromY;
+        }
+      } else {
+        camX = stepFromX + (stepToX - stepFromX) * stepProgress;
+        camY = stepFromY + (stepToY - stepFromY) * stepProgress;
+      }
+      return;
     }
 
-    // Hitbox collision: try the full move first; if blocked, try sliding
-    // along just one axis before giving up, so bumping a corner doesn't
-    // freeze you completely. Checked against both other players AND
-    // world objects (buildings, trees, etc).
-    const wantX = camX + dx * SPEED;
-    const wantY = camY + dy * SPEED;
-    const blocked = (nx, ny) => collidesWithOthers(camX, camY, nx, ny);
-    if (!blocked(wantX, wantY)) {
-      camX = wantX; camY = wantY;
-    } else if (!blocked(wantX, camY)) {
-      camX = wantX;
-    } else if (!blocked(camX, wantY)) {
-      camY = wantY;
+    if (!moveDir){
+      walkIndex = 0; walkAcc = 0; turning = false;
+      return;
     }
-    // else: fully blocked this frame, position unchanged.
+
+    if (facing !== moveDir){
+      // GBA MOVEMENT: first press of a new direction only turns you to face
+      // it — no movement this frame.
+      facing = moveDir; turning = true; walkIndex = 0; walkAcc = 0;
+      return;
+    }
+    if (turning){
+      turning = false;
+      return;
+    }
+
+    // GBA MOVEMENT: attempt exactly one whole-tile step in the facing
+    // direction. Checked against both other players AND world objects
+    // (buildings, trees, etc.) as a single before/after whole-tile test —
+    // see collidesWithOthers() and, for world assets, collidesWithWorldAssets().
+    let tx = camX, ty = camY;
+    if (facing === 'left') tx -= STEP_SIZE;
+    if (facing === 'right') tx += STEP_SIZE;
+    if (facing === 'up') ty -= STEP_SIZE;
+    if (facing === 'down') ty += STEP_SIZE;
+
+    if (!collidesWithOthers(camX, camY, tx, ty) && !collidesWithWorldAssets(tx, ty)){
+      stepFromX = camX; stepFromY = camY;
+      stepToX = tx; stepToY = ty;
+      stepProgress = 0;
+      stepping = true;
+    } else {
+      // Blocked: stand still facing that direction, same as bumping a wall in GBA.
+      walkIndex = 0; walkAcc = 0;
+    }
   }
 
   function drawSpriteAt(spriteKey, dir, frameIdx, px, py){
@@ -875,6 +1144,7 @@
     }
 
     drawCheckpoints(); // CHECKPOINTS: delete this line if removing the feature
+    drawWorldAssets(); // WORLD ASSETS: delete this line if removing the feature
 
     // Remote players (drawn relative to our camera position)
     const now = Date.now();
@@ -890,6 +1160,8 @@
 
     // Local player (always centered on screen)
     drawSpriteAt(mySprite, facing, walkIndex, SPRITE_X, SPRITE_Y);
+
+    drawEnterOverlay(); // WORLD ASSETS: delete this line if removing the feature — must stay last so it covers everything else
 
     document.getElementById('coords').textContent = 'x:' + Math.round(camX) + ' y:' + Math.round(camY);
   }
