@@ -54,6 +54,16 @@
 
   #coords { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.4); font-size: 11px; font-family: monospace; }
 
+  /* ===== CHECKPOINTS (self-contained — see matching JS block) ===== */
+  #checkpointToast {
+    position: absolute; bottom: 6%; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.75); color: #eafbe6; font-size: 11px; font-weight: 600;
+    padding: 7px 16px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.25);
+    opacity: 0; transition: opacity 0.4s; pointer-events: none; white-space: nowrap;
+  }
+  #checkpointToast.show { opacity: 1; }
+  /* ===== END CHECKPOINTS CSS ===== */
+
   /* Global chat */
   #chatPanel {
     position: absolute; top: 46px; left: 6px; right: 6px; bottom: 75%;
@@ -191,6 +201,8 @@
     </div>
 
     <div id="coords">x:0 y:0</div>
+    <!-- CHECKPOINTS: safe to delete this line along with the matching JS/CSS blocks -->
+    <div id="checkpointToast"></div>
   </div>
 </div>
 
@@ -212,11 +224,19 @@
   // height. The uncovered strip at the top (head/shoulders) can visually
   // overlap a sprite standing "in front", so one player can appear to stand
   // partly behind another instead of two solid boxes just butting heads.
-  const HITBOX_W = 18, HITBOX_H = 25;
-  const HITBOX_X_OFFSET = (SPRITE_W - HITBOX_W) / 2; // centers the (narrower) hitbox under the sprite
-  const HITBOX_Y_OFFSET = SPRITE_H - HITBOX_H;        // anchors it to the feet
-  function hitboxOf(worldX, worldY){
-    return { x: worldX + HITBOX_X_OFFSET, y: worldY + HITBOX_Y_OFFSET, w: HITBOX_W, h: HITBOX_H };
+  //
+  // Each sprite in SPRITE_ROSTER (further down this file) can set its own
+  // "hitbox: { w, h }" — this default is only used if a sprite omits it.
+  const DEFAULT_HITBOX = { w: 18, h: 25 };
+  function hitboxDimsFor(spriteKey){
+    const entry = SPRITE_ROSTER.find((s) => s.key === spriteKey);
+    return (entry && entry.hitbox) || DEFAULT_HITBOX;
+  }
+  function hitboxOf(worldX, worldY, spriteKey){
+    const dims = hitboxDimsFor(spriteKey);
+    const xOff = (SPRITE_W - dims.w) / 2; // always centered under the sprite's art
+    const yOff = SPRITE_H - dims.h;        // always anchored to the feet
+    return { x: worldX + xOff, y: worldY + yOff, w: dims.w, h: dims.h };
   }
   function overlapArea(a, b){
     const ox = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
@@ -230,13 +250,13 @@
   // the overlap are still allowed — otherwise both players would be
   // permanently deadlocked, unable to move at all, the moment they overlap.
   function collidesWithOthers(curX, curY, nextX, nextY){
-    const mineNow = hitboxOf(curX, curY);
-    const mineNext = hitboxOf(nextX, nextY);
+    const mineNow = hitboxOf(curX, curY, mySprite);
+    const mineNext = hitboxOf(nextX, nextY, mySprite);
     const now = Date.now();
     for (const id in remotePlayers){
       const p = remotePlayers[id];
       if (!p || now - (p.t || 0) > STALE_MS) continue;
-      const theirs = hitboxOf(p.x, p.y);
+      const theirs = hitboxOf(p.x, p.y, p.sprite || 'a');
       const before = overlapArea(mineNow, theirs);
       const after = overlapArea(mineNext, theirs);
       if (after > 0 && after >= before) return true;
@@ -287,6 +307,102 @@
   }
   ['btnA','btnB','btnL','btnR','btnSelect','btnStart','btnSave','btnLoad','btnFastForward','btnMenu'].forEach(bindHook);
 
+  // =====================================================================
+  //  CHECKPOINTS — fully self-contained, temporary/placeholder feature.
+  //  To remove it later: delete this whole block, delete the matching CSS
+  //  block marked "CHECKPOINTS" near the top of <style>, delete the
+  //  <div id="checkpointToast"> line, and delete the one-line call to
+  //  loadSavedCheckpoint(...) inside the auth sign-in handler further down
+  //  (also marked "CHECKPOINTS:"). Nothing else in the file depends on
+  //  any of this.
+  //
+  //  30x30 white squares scattered at random world positions, at least
+  //  100px apart from each other (no upper limit on spread). Standing on
+  //  one and pressing A saves your current position to Firebase; it's
+  //  restored automatically the next time you sign in, instead of the
+  //  default random spot near (0,0).
+  // =====================================================================
+  const CHECKPOINT_SIZE = 30;
+  const CHECKPOINT_COUNT = 8;
+  const CHECKPOINT_MIN_SPACING = 100; // minimum distance between any two checkpoints
+  const CHECKPOINT_SPREAD = 800;      // how far from the origin they can land
+
+  function generateCheckpoints(){
+    const pts = [];
+    let guard = 0;
+    while (pts.length < CHECKPOINT_COUNT && guard < 5000){
+      guard++;
+      const x = Math.floor((Math.random() - 0.5) * 2 * CHECKPOINT_SPREAD);
+      const y = Math.floor((Math.random() - 0.5) * 2 * CHECKPOINT_SPREAD);
+      const farEnough = pts.every((p) => Math.hypot(p.x - x, p.y - y) >= CHECKPOINT_MIN_SPACING);
+      if (farEnough) pts.push({ x, y });
+    }
+    return pts;
+  }
+  const CHECKPOINTS = generateCheckpoints();
+
+  function checkpointRect(cp){
+    return { x: cp.x, y: cp.y, w: CHECKPOINT_SIZE, h: CHECKPOINT_SIZE };
+  }
+
+  function drawCheckpoints(){
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    for (const cp of CHECKPOINTS){
+      const px = Math.round(SPRITE_X + (cp.x - camX));
+      const py = Math.round(SPRITE_Y + (cp.y - camY));
+      if (px > -CHECKPOINT_SIZE && px < W && py > -CHECKPOINT_SIZE && py < H){
+        ctx.fillRect(px, py, CHECKPOINT_SIZE, CHECKPOINT_SIZE);
+      }
+    }
+  }
+
+  // "Enters" = the player's hitbox touches the checkpoint square at all.
+  function checkpointUnderPlayer(){
+    const mine = hitboxOf(camX, camY, mySprite);
+    return CHECKPOINTS.find((cp) => overlapArea(mine, checkpointRect(cp)) > 0) || null;
+  }
+
+  const checkpointToast = document.getElementById('checkpointToast');
+  let checkpointToastTimer = null;
+  function showCheckpointToast(text){
+    checkpointToast.textContent = text;
+    checkpointToast.classList.add('show');
+    clearTimeout(checkpointToastTimer);
+    checkpointToastTimer = setTimeout(() => checkpointToast.classList.remove('show'), 2000);
+  }
+
+  async function trySaveCheckpoint(){
+    if (!playerId) return;
+    const cp = checkpointUnderPlayer();
+    if (!cp) return;
+    try {
+      await firebase.database().ref('playerCheckpoints/' + playerId).set({ x: camX, y: camY, t: Date.now() });
+      showCheckpointToast('Checkpoint saved');
+    } catch (err) {
+      console.error('Checkpoint save failed:', err);
+    }
+  }
+
+  async function loadSavedCheckpoint(db, uid){
+    try {
+      const snap = await db.ref('playerCheckpoints/' + uid).once('value');
+      const val = snap.val();
+      if (val && typeof val.x === 'number' && typeof val.y === 'number') {
+        camX = val.x; camY = val.y;
+      }
+    } catch (err) {
+      console.error('Could not load saved checkpoint:', err);
+    }
+  }
+
+  document.getElementById('btnA').addEventListener('pointerdown', () => trySaveCheckpoint());
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'a' || e.key === 'z' || e.key === 'Enter') trySaveCheckpoint();
+  });
+  // =====================================================================
+  //  END CHECKPOINTS block
+  // =====================================================================
+
   window.addEventListener('keydown', (e) => {
     if (document.activeElement && document.activeElement.id === 'chatInput') return;
     if (e.key === 'ArrowUp') keys.up = true;
@@ -320,7 +436,8 @@
       down:  ["MV1.png", "MV2.png", "MV1.png", "MV3.png"],
       up:    ["MB1.png", "MB2.png", "MB1.png", "MB3.png"],
       left:  ["ML0.png", "ML1.png", "ML0.png", "ML2.png"],
-      right: ["MR0.png", "MR1.png", "MR0.png", "MR2.png"]
+      right: ["MR0.png", "MR1.png", "MR0.png", "MR2.png"],
+      hitbox: { w: 18, h: 25 } // collision box for THIS sprite; smaller than the art on purpose (see note below)
     },
     {
       key: 'b',
@@ -330,7 +447,8 @@
       down:  ["BF0.png", "BF1.png", "BF0.png", "BF2.png"],
       up:    ["BB0.png", "BB1.png", "BB0.png", "BB2.png"],
       left:  ["BL0.png", "BL1.png", "BL0.png", "BL2.png"],
-      right: ["BR0.png", "BR1.png", "BR0.png", "BR2.png"]
+      right: ["BR0.png", "BR1.png", "BR0.png", "BR2.png"],
+      hitbox: { w: 18, h: 25 }
     }
     // ,{
     //   key: 'c',
@@ -340,7 +458,8 @@
     //   down:  ["", "", "", ""],
     //   up:    ["", "", "", ""],
     //   left:  ["", "", "", ""],
-    //   right: ["", "", "", ""]
+    //   right: ["", "", "", ""],
+    //   hitbox: { w: 18, h: 25 } // tweak per-sprite if a character's art has a different footprint
     // }
   ];
 
@@ -378,6 +497,8 @@
   });
 
   let mySprite = 'a';
+
+
   let walkIndex = 0, walkAcc = 0, facing = 'down', turning = false;
   const WALK_FRAME_MS = 1000 / 7;
   const SPRITE_X = Math.floor((W - SPRITE_W) / 2);
@@ -416,6 +537,7 @@
       firebase.auth().onAuthStateChanged((user) => {
         if (!user) return;
         playerId = user.uid;
+        loadSavedCheckpoint(db, playerId); // CHECKPOINTS: spawn at saved spot instead of the random default
         playersRef = db.ref('players');
         playerRef = db.ref('players/' + playerId);
         playerRef.onDisconnect().remove();
@@ -676,14 +798,16 @@
 
     // Hitbox collision: try the full move first; if blocked, try sliding
     // along just one axis before giving up, so bumping a corner doesn't
-    // freeze you completely.
+    // freeze you completely. Checked against both other players AND
+    // world objects (buildings, trees, etc).
     const wantX = camX + dx * SPEED;
     const wantY = camY + dy * SPEED;
-    if (!collidesWithOthers(camX, camY, wantX, wantY)) {
+    const blocked = (nx, ny) => collidesWithOthers(camX, camY, nx, ny);
+    if (!blocked(wantX, wantY)) {
       camX = wantX; camY = wantY;
-    } else if (!collidesWithOthers(camX, camY, wantX, camY)) {
+    } else if (!blocked(wantX, camY)) {
       camX = wantX;
-    } else if (!collidesWithOthers(camX, camY, camX, wantY)) {
+    } else if (!blocked(camX, wantY)) {
       camY = wantY;
     }
     // else: fully blocked this frame, position unchanged.
@@ -715,6 +839,8 @@
         ctx.fillRect(px, py, TILE, TILE);
       }
     }
+
+    drawCheckpoints(); // CHECKPOINTS: delete this line if removing the feature
 
     // Remote players (drawn relative to our camera position)
     const now = Date.now();
