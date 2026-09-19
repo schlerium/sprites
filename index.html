@@ -316,11 +316,17 @@
   //  (also marked "CHECKPOINTS:"). Nothing else in the file depends on
   //  any of this.
   //
-  //  30x30 white squares scattered at random world positions, at least
-  //  20px apart from each other (no upper limit on spread). Standing on
-  //  one and pressing A saves your current position to Firebase; it's
-  //  restored automatically the next time you sign in, instead of the
-  //  default random spot near (0,0).
+  //  30x30 white squares laid out on a fixed grid around the origin (see
+  //  CHECKPOINTS note directly below). Standing on one and pressing A saves
+  //  your current position to Firebase; it's restored automatically the
+  //  next time you sign in, instead of the default random spot near (0,0).
+  //
+  //  CHECKPOINTS: switched from "N random points with a minimum-spacing
+  //  rule" to a plain fixed grid, so checkpoints are dense and predictable
+  //  everywhere instead of wherever the RNG happened to land one. Density
+  //  is now controlled only by CHECKPOINT_SPACING below (smaller = more
+  //  checkpoints, closer together); CHECKPOINT_COUNT and
+  //  CHECKPOINT_MIN_SPACING no longer exist.
   //
   //  CHECKPOINTS: the generated layout (the actual x/y of each square) is
   //  cached in localStorage the first time it's generated, and reused on
@@ -329,20 +335,20 @@
   //  on every load, so the squares moved away from wherever you'd saved.
   // =====================================================================
   const CHECKPOINT_SIZE = 30;
-  const CHECKPOINT_COUNT = 8;
-  const CHECKPOINT_MIN_SPACING = 20;   // CHECKPOINTS: changed from 100 -> 20 (min distance between checkpoints)
-  const CHECKPOINT_SPREAD = 2000;      // CHECKPOINTS: changed from 800 -> 2000 (how far from the origin they can land)
-  const CHECKPOINT_STORAGE_KEY = 'checkpointLayout_v1'; // CHECKPOINTS: localStorage key used to persist the layout below
+  const CHECKPOINT_SPACING = 150;   // CHECKPOINTS: grid step in world px (was random scatter before) — smaller = more/closer checkpoints
+  const CHECKPOINT_SPREAD = 1200;   // CHECKPOINTS: changed from 2000 -> 1200 (how far the grid extends from the origin in each direction)
+  const CHECKPOINT_STORAGE_KEY = 'checkpointLayout_v2'; // CHECKPOINTS: bumped v1 -> v2 so any old cached (random) layout is discarded and regenerated as a grid
 
+  // CHECKPOINTS: a full grid (spacing 150px, out to 1200px from origin) means
+  // that walking 600px (10 seconds at this game's move speed) in ANY
+  // direction from anywhere near spawn will always cross paths with several
+  // checkpoints, not just whichever direction the old RNG happened to favor.
   function generateCheckpoints(){
     const pts = [];
-    let guard = 0;
-    while (pts.length < CHECKPOINT_COUNT && guard < 5000){
-      guard++;
-      const x = Math.floor((Math.random() - 0.5) * 2 * CHECKPOINT_SPREAD);
-      const y = Math.floor((Math.random() - 0.5) * 2 * CHECKPOINT_SPREAD);
-      const farEnough = pts.every((p) => Math.hypot(p.x - x, p.y - y) >= CHECKPOINT_MIN_SPACING);
-      if (farEnough) pts.push({ x, y });
+    for (let x = -CHECKPOINT_SPREAD; x <= CHECKPOINT_SPREAD; x += CHECKPOINT_SPACING){
+      for (let y = -CHECKPOINT_SPREAD; y <= CHECKPOINT_SPREAD; y += CHECKPOINT_SPACING){
+        pts.push({ x, y });
+      }
     }
     return pts;
   }
@@ -354,7 +360,7 @@
       const saved = localStorage.getItem(CHECKPOINT_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length === CHECKPOINT_COUNT) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch (err) {
       console.error('Could not read saved checkpoint layout:', err);
