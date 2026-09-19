@@ -56,7 +56,7 @@
 
   /* Global chat */
   #chatPanel {
-    position: absolute; top: 46px; left: 6px; right: 6px; max-height: 34%;
+    position: absolute; top: 46px; left: 6px; right: 6px; bottom: 75%;
     display: none; flex-direction: column; pointer-events: auto;
     background: rgba(0,0,0,0.82); border: 2px solid #b6e66b; border-radius: 6px; overflow: hidden;
   }
@@ -207,6 +207,29 @@
 
   const W = 240, H = 160, TILE = 4;
   const SPRITE_W = 21, SPRITE_H = 28;
+  // Hitbox is smaller than the sprite artwork ON PURPOSE: it's anchored to
+  // the feet (bottom of the sprite) and only 17px tall out of the sprite's
+  // 28px height. The uncovered top ~11px (head/shoulders) can visually
+  // overlap a sprite standing "in front", so one player can appear to stand
+  // partly behind another instead of two solid boxes just butting heads.
+  const HITBOX_W = 21, HITBOX_H = 17;
+  const HITBOX_Y_OFFSET = SPRITE_H - HITBOX_H; // 11 — top of sprite is not solid
+  function hitboxOf(worldX, worldY){
+    return { x: worldX, y: worldY + HITBOX_Y_OFFSET, w: HITBOX_W, h: HITBOX_H };
+  }
+  function rectsOverlap(a, b){
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+  function collidesWithOthers(worldX, worldY){
+    const mine = hitboxOf(worldX, worldY);
+    const now = Date.now();
+    for (const id in remotePlayers){
+      const p = remotePlayers[id];
+      if (!p || now - (p.t || 0) > STALE_MS) continue;
+      if (rectsOverlap(mine, hitboxOf(p.x, p.y))) return true;
+    }
+    return false;
+  }
 
   function hash2(x, y){
     let h = (x * 374761393 + y * 668265263) ^ ((x * 374761393 + y * 668265263) >> 13);
@@ -416,6 +439,10 @@
   const PLAYER_COLORS = ['#ff6b6b', '#6bc7ff', '#7CFC9E', '#ffd166', '#c792ea', '#ff9f6b', '#6bffef', '#ff6bd0'];
   let chatRef = null;
   let ownsChatCleanup = false;
+  let manualChatOpen = false;      // toggled by the 💬 button, stays open until tapped again
+  let autoShowActive = false;      // true while a "someone just typed" 5s window is running
+  let autoShowTimer = null;
+  const chatAttachedAt = Date.now(); // used to ignore the initial 50-message backlog on load
 
   function colorForUid(uid){
     let h = 0;
@@ -440,9 +467,33 @@
     chatLog.scrollTop = chatLog.scrollHeight;
   }
 
+  function updateChatVisibility(){
+    chatPanel.classList.toggle('show', manualChatOpen || autoShowActive);
+  }
+
+  // Restart (or start) the 5-second "someone just messaged" window. Any new
+  // message — from anyone — resets this timer, so the panel only fades away
+  // once 5 full seconds pass with nobody sending anything.
+  function bumpAutoShow(){
+    autoShowActive = true;
+    updateChatVisibility();
+    clearTimeout(autoShowTimer);
+    autoShowTimer = setTimeout(() => {
+      autoShowActive = false;
+      autoShowTimer = null;
+      updateChatVisibility();
+    }, 5000);
+  }
+
   function initChat(db){
     chatRef = db.ref('chat');
     chatRef.limitToLast(50).on('value', (snap) => renderChat(snap.val()));
+    // Only react to messages that arrive AFTER we connected, so loading the
+    // existing 50-message backlog on join doesn't itself pop the panel open.
+    chatRef.limitToLast(50).on('child_added', (snap) => {
+      const m = snap.val();
+      if (m && m.t && m.t > chatAttachedAt) bumpAutoShow();
+    });
   }
 
   function updateChatCleanupOwnership(playerCount){
@@ -464,9 +515,13 @@
     chatRef.push({ uid: playerId, text: text.slice(0, 200), t: firebase.database.ServerValue.TIMESTAMP });
   }
 
-  document.getElementById('btnChatToggle').addEventListener('click', () => chatPanel.classList.toggle('show'));
+  document.getElementById('btnChatToggle').addEventListener('click', () => {
+    manualChatOpen = !manualChatOpen;
+    updateChatVisibility();
+  });
   document.getElementById('chatSendBtn').addEventListener('click', sendChatMessage);
   chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChatMessage(); });
+
 
   function startNetworkSync(){
     setInterval(() => {
@@ -601,8 +656,19 @@
       walkIndex = 0; walkAcc = 0; turning = false;
     }
 
-    camX += dx * SPEED;
-    camY += dy * SPEED;
+    // Hitbox collision: try the full move first; if blocked, try sliding
+    // along just one axis before giving up, so bumping a corner doesn't
+    // freeze you completely.
+    const wantX = camX + dx * SPEED;
+    const wantY = camY + dy * SPEED;
+    if (!collidesWithOthers(wantX, wantY)) {
+      camX = wantX; camY = wantY;
+    } else if (!collidesWithOthers(wantX, camY)) {
+      camX = wantX;
+    } else if (!collidesWithOthers(camX, wantY)) {
+      camY = wantY;
+    }
+    // else: fully blocked this frame, position unchanged.
   }
 
   function drawSpriteAt(spriteKey, dir, frameIdx, px, py){
