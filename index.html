@@ -208,25 +208,38 @@
   const W = 240, H = 160, TILE = 4;
   const SPRITE_W = 21, SPRITE_H = 28;
   // Hitbox is smaller than the sprite artwork ON PURPOSE: it's anchored to
-  // the feet (bottom of the sprite) and only 17px tall out of the sprite's
-  // 28px height. The uncovered top ~11px (head/shoulders) can visually
+  // the feet (bottom of the sprite) and shorter than the sprite's full
+  // height. The uncovered strip at the top (head/shoulders) can visually
   // overlap a sprite standing "in front", so one player can appear to stand
   // partly behind another instead of two solid boxes just butting heads.
-  const HITBOX_W = 21, HITBOX_H = 17;
-  const HITBOX_Y_OFFSET = SPRITE_H - HITBOX_H; // 11 — top of sprite is not solid
+  const HITBOX_W = 18, HITBOX_H = 25;
+  const HITBOX_X_OFFSET = (SPRITE_W - HITBOX_W) / 2; // centers the (narrower) hitbox under the sprite
+  const HITBOX_Y_OFFSET = SPRITE_H - HITBOX_H;        // anchors it to the feet
   function hitboxOf(worldX, worldY){
-    return { x: worldX, y: worldY + HITBOX_Y_OFFSET, w: HITBOX_W, h: HITBOX_H };
+    return { x: worldX + HITBOX_X_OFFSET, y: worldY + HITBOX_Y_OFFSET, w: HITBOX_W, h: HITBOX_H };
   }
-  function rectsOverlap(a, b){
-    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  function overlapArea(a, b){
+    const ox = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+    const oy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+    return ox * oy;
   }
-  function collidesWithOthers(worldX, worldY){
-    const mine = hitboxOf(worldX, worldY);
+  // curX/curY = where I am right now, nextX/nextY = where I'm trying to move.
+  // A move is blocked only if it would push me MORE into another player's
+  // hitbox than I already am. If we're already overlapping (e.g. two
+  // players spawned on the same spot at once), moves that reduce or hold
+  // the overlap are still allowed — otherwise both players would be
+  // permanently deadlocked, unable to move at all, the moment they overlap.
+  function collidesWithOthers(curX, curY, nextX, nextY){
+    const mineNow = hitboxOf(curX, curY);
+    const mineNext = hitboxOf(nextX, nextY);
     const now = Date.now();
     for (const id in remotePlayers){
       const p = remotePlayers[id];
       if (!p || now - (p.t || 0) > STALE_MS) continue;
-      if (rectsOverlap(mine, hitboxOf(p.x, p.y))) return true;
+      const theirs = hitboxOf(p.x, p.y);
+      const before = overlapArea(mineNow, theirs);
+      const after = overlapArea(mineNext, theirs);
+      if (after > 0 && after >= before) return true;
     }
     return false;
   }
@@ -242,7 +255,12 @@
     return r < 0.06 ? SHADE_DARK : (r < 0.12 ? SHADE_LIGHT : (r < 0.16 ? BLADE : BASE));
   }
 
-  let camX = 0, camY = 0;
+  // A small random spawn offset means two people joining at the same
+  // instant don't land in the exact same spot (they'd still separate fine
+  // even if they did, thanks to the collision fix above, but this avoids
+  // it happening at all in the first place).
+  let camX = Math.floor((Math.random() - 0.5) * 40);
+  let camY = Math.floor((Math.random() - 0.5) * 40);
   const SPEED = 1.0;
   const keys = { up: false, down: false, left: false, right: false };
 
@@ -661,11 +679,11 @@
     // freeze you completely.
     const wantX = camX + dx * SPEED;
     const wantY = camY + dy * SPEED;
-    if (!collidesWithOthers(wantX, wantY)) {
+    if (!collidesWithOthers(camX, camY, wantX, wantY)) {
       camX = wantX; camY = wantY;
-    } else if (!collidesWithOthers(wantX, camY)) {
+    } else if (!collidesWithOthers(camX, camY, wantX, camY)) {
       camX = wantX;
-    } else if (!collidesWithOthers(camX, wantY)) {
+    } else if (!collidesWithOthers(camX, camY, camX, wantY)) {
       camY = wantY;
     }
     // else: fully blocked this frame, position unchanged.
