@@ -232,11 +232,13 @@
     const entry = SPRITE_ROSTER.find((s) => s.key === spriteKey);
     return (entry && entry.hitbox) || DEFAULT_HITBOX;
   }
-  function hitboxOf(worldX, worldY, spriteKey){
-    const dims = hitboxDimsFor(spriteKey);
-    const xOff = (SPRITE_W - dims.w) / 2; // always centered under the sprite's art
-    const yOff = SPRITE_H - dims.h;        // always anchored to the feet
-    return { x: worldX + xOff, y: worldY + yOff, w: dims.w, h: dims.h };
+  // TILE FIX: (camX, camY) is now the TOP-LEFT OF THE 16x16 TILE the player
+  // stands on (always a multiple of 16), NOT the top-left of the sprite art.
+  // The art is drawn relative to that tile (see SPRITE_ART_DX/DY further down),
+  // so the hitbox is simply the tile itself — one player = one tile, exactly
+  // like GBA. (The per-sprite "hitbox" values in SPRITE_ROSTER are no longer used.)
+  function hitboxOf(worldX, worldY /*, spriteKey (unused) */){
+    return { x: worldX, y: worldY, w: 16, h: 16 };
   }
   function overlapArea(a, b){
     const ox = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
@@ -279,8 +281,13 @@
   // instant don't land in the exact same spot (they'd still separate fine
   // even if they did, thanks to the collision fix above, but this avoids
   // it happening at all in the first place).
-  let camX = Math.floor((Math.random() - 0.5) * 40);
-  let camY = Math.floor((Math.random() - 0.5) * 40);
+  // GRID FIX: spawn exactly on the tile grid at (0,0). The old random +/-20px
+  // spawn put every player on a different sub-tile "phase", so with 16px
+  // whole-tile steps they could never line up with each other or the world
+  // blocks. Overlapping spawns are safe: collidesWithOthers() still lets
+  // two overlapping players walk apart.
+  let camX = 0;
+  let camY = 0;
   const SPEED = 1.0; // world px moved per frame WHILE a GBA-style step is in progress (see STEP_SIZE / update() below) — same value as before, so overall walk speed feels unchanged
   const keys = { up: false, down: false, left: false, right: false };
 
@@ -422,7 +429,17 @@
       const snap = await db.ref('playerCheckpoints/' + uid).once('value');
       const val = snap.val();
       if (val && typeof val.x === 'number' && typeof val.y === 'number') {
-        camX = val.x; camY = val.y;
+        // GRID FIX: older saves were made before 16px whole-tile movement
+        // existed, so they can sit off-grid (e.g. x:9 y:6). Snap them down
+        // to the tile they're inside (9,6 -> 0,0) and write the corrected
+        // spot back so the bad value is gone from the database for good.
+        const gx = Math.floor(val.x / STEP_SIZE) * STEP_SIZE;
+        const gy = Math.floor(val.y / STEP_SIZE) * STEP_SIZE;
+        camX = gx; camY = gy;
+        stepping = false; stepProgress = 0; // drop any half-finished step started before this load finished
+        if (gx !== val.x || gy !== val.y) {
+          db.ref('playerCheckpoints/' + uid).update({ x: gx, y: gy });
+        }
       }
     } catch (err) {
       console.error('Could not load saved checkpoint:', err);
@@ -521,14 +538,18 @@
   // sizing the box to one tile wasn't enough, because it could still be a
   // few px out of phase with the building's own grid. A point can't
   // straddle anything: it's always inside exactly one tile.
+  // TILE FIX: the anchor is now just the centre of the player's own tile.
+  // (Old version used the sprite art's box: x + 10.5, y + 20, which is NOT
+  // where the drawn feet were, so the "invisible hitbox" sat ~9px away from
+  // buildings and the player could never stand flush against one.)
   function worldTileAnchorOf(worldX, worldY){
-    return { x: worldX + SPRITE_W / 2, y: worldY + SPRITE_H - WORLD_TILE / 2 };
+    return { x: worldX + WORLD_TILE / 2, y: worldY + WORLD_TILE / 2 };
   }
   function pointInBlock(px, py, b){
     return px >= b.x && px < b.x + WORLD_TILE && py >= b.y && py < b.y + WORLD_TILE;
   }
   function worldBlockDefaults(b){
-    return Object.assign({ file: '', walkable: false, enter: false, enterFrames: [] }, b || {});
+    return Object.assign({ file: '', walkable: false, enter: false, enterFrames: [], overPlayer: false }, b || {});
   }
   function makeWorldBlockImage(base, file){
     if (!file) return null;
@@ -555,6 +576,7 @@
             assetKey: asset.key, blockKey: key,
             x: worldX, y: worldY,
             file: block.file, walkable: block.walkable, enter: block.enter, enterFrames: block.enterFrames,
+            overPlayer: block.overPlayer, // LAYERING: true = always draw this block ON TOP of players (roof overhangs, tree tops)
             img: makeWorldBlockImage(asset.base, block.file),
             conflicted: false
           };
@@ -574,12 +596,13 @@
     });
   })();
 
-  function drawWorldAssets(){
-    for (const b of WORLD_BLOCKS){
-      if (b.conflicted) continue; // WORLD ASSETS: overlapping placement — render nothing until it's fixed
+  // LAYERING: one block at a time now — draw() sorts blocks and players
+  // together by row so buildings correctly cover / sit behind players.
+  function drawWorldBlock(b){
+    {
       const px = Math.round(SPRITE_X + (b.x - camX));
       const py = Math.round(SPRITE_Y + (b.y - camY));
-      if (px <= -WORLD_TILE || px >= W || py <= -WORLD_TILE || py >= H) continue;
+      if (px <= -WORLD_TILE || px >= W || py <= -WORLD_TILE || py >= H) return;
       if (b.img && b.img.complete && b.img.naturalWidth > 0){
         ctx.drawImage(b.img, px, py, WORLD_TILE, WORLD_TILE);
       } else {
@@ -696,18 +719,18 @@
       left:  ["BL0.png", "BL1.png", "BL0.png", "BL2.png"],
       right: ["BR0.png", "BR1.png", "BR0.png", "BR2.png"],
       hitbox: { w: 18, h: 25 }
-    }
-    // ,{
-    //   key: 'c',
-    //   name: 'SPRITE C',
-    //   locked: true,
-    //   base: "",
-    //   down:  ["", "", "", ""],
-    //   up:    ["", "", "", ""],
-    //   left:  ["", "", "", ""],
-    //   right: ["", "", "", ""],
-    //   hitbox: { w: 18, h: 25 } // tweak per-sprite if a character's art has a different footprint
-    // }
+    },
+    {
+      key: 'c',
+       name: 'Ash',
+       locked: true,
+       base: "https://raw.githubusercontent.com/schlerium/sprites/main/",
+       down:  ["ashf0.png", "ashf1.png", "ashf0.png", "ashf2.png"],
+       up:    ["ashb0.png", "ashb1.png", "ashb0.png", "ashb2.png"],
+       left:  ["ashl0.png", "ashl1.png", "ashl0.png", "ashl2.png"],
+       right: ["ashr0.png", "ashr1.png", "ashr0.png", "ashr2.png"],
+       hitbox: { w: 16, h: 19 } // tweak per-sprite if a character's art has a different footprint
+     }
   ];
 
   function makeFrame(base, file){
@@ -752,8 +775,20 @@
   // further down, and the STEP_SIZE constant near it, for the full writeup).
   let stepping = false;
   let stepFromX = 0, stepFromY = 0, stepToX = 0, stepToY = 0, stepProgress = 0;
-  const SPRITE_X = Math.floor((W - SPRITE_W) / 2);
-  const SPRITE_Y = Math.floor((H - SPRITE_H) / 2);
+  // TILE FIX: SPRITE_X/SPRITE_Y = where the player's TILE (top-left of the
+  // 16x16 square at camX,camY) sits on screen. World things are placed
+  // relative to this, so the player's tile lines up with the building grid.
+  const SPRITE_X = Math.floor((W - WORLD_TILE) / 2);
+  const SPRITE_Y = Math.floor((H - WORLD_TILE) / 2);
+  // The art (SPRITE_W x SPRITE_H) is then drawn relative to the tile:
+  //   - centred horizontally on the tile
+  //   - bottom edge on the tile's bottom edge (feet on the tile), minus
+  //     SPRITE_FEET_PAD = transparent rows at the bottom of your PNG frames
+  //     (measured ~3px from your screenshot — if the feet look like they
+  //     float, raise it; if they sink into the tile, lower it).
+  const SPRITE_FEET_PAD = 3;
+  const SPRITE_ART_DX = -Math.round((SPRITE_W - WORLD_TILE) / 2);
+  const SPRITE_ART_DY = WORLD_TILE - SPRITE_H + SPRITE_FEET_PAD;
 
   // ---------- Multiplayer (Firebase Realtime Database) ----------
   // 1. Create a free project at https://console.firebase.google.com
@@ -1144,22 +1179,31 @@
     }
 
     drawCheckpoints(); // CHECKPOINTS: delete this line if removing the feature
-    drawWorldAssets(); // WORLD ASSETS: delete this line if removing the feature
 
-    // Remote players (drawn relative to our camera position)
+    // LAYERING (y-sort): blocks and players are drawn together, top row to
+    // bottom row. A block in a row ABOVE (north of) a player is drawn first,
+    // so the player stands in front of it; a block in a row BELOW (south of)
+    // a player is drawn after, so it covers him (roof over your head when you
+    // walk behind a shop). Blocks with overPlayer:true always go on top.
+    const drawList = [];
+    for (const b of WORLD_BLOCKS){
+      if (b.conflicted) continue; // WORLD ASSETS: overlapping placement — render nothing until it's fixed
+      drawList.push({ k: b.overPlayer ? 1e9 : b.y, fn: () => drawWorldBlock(b) });
+    }
     const now = Date.now();
     for (const id in remotePlayers){
       const p = remotePlayers[id];
       if (!p || now - (p.t || 0) > STALE_MS) continue;
-      const px = Math.round(SPRITE_X + (p.x - camX));
-      const py = Math.round(SPRITE_Y + (p.y - camY));
+      const px = Math.round(SPRITE_X + (p.x - camX)) + SPRITE_ART_DX;
+      const py = Math.round(SPRITE_Y + (p.y - camY)) + SPRITE_ART_DY;
       if (px > -SPRITE_W && px < W && py > -SPRITE_H && py < H){
-        drawSpriteAt(p.sprite || 'a', p.facing || 'down', p.walkIndex || 0, px, py);
+        drawList.push({ k: p.y + 0.5, fn: () => drawSpriteAt(p.sprite || 'a', p.facing || 'down', p.walkIndex || 0, px, py) });
       }
     }
-
-    // Local player (always centered on screen)
-    drawSpriteAt(mySprite, facing, walkIndex, SPRITE_X, SPRITE_Y);
+    // Local player (always centered on screen); +0.51 so on a tie he draws above other players
+    drawList.push({ k: camY + 0.51, fn: () => drawSpriteAt(mySprite, facing, walkIndex, SPRITE_X + SPRITE_ART_DX, SPRITE_Y + SPRITE_ART_DY) });
+    drawList.sort((a, b) => a.k - b.k);
+    for (const item of drawList) item.fn();
 
     drawEnterOverlay(); // WORLD ASSETS: delete this line if removing the feature — must stay last so it covers everything else
 
