@@ -71,7 +71,7 @@
   #charSelectPanel { text-align: center; padding: 20px; max-width: 420px; width: 90%; }
   #charSelectPanel h2 { margin: 0 0 4px; font-size: 20px; letter-spacing: 1px; }
   #charSelectSub { margin: 0 0 20px; font-size: 12px; opacity: 0.6; }
-  #charOptions { display: flex; gap: 16px; justify-content: center; margin-bottom: 20px; }
+  #charOptions { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; margin-bottom: 20px; max-height: 46vh; overflow-y: auto; }
   .charOption {
     width: 130px; padding: 14px 8px; border-radius: 12px;
     border: 2px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.06);
@@ -82,11 +82,28 @@
   .charOption .thumbWrap {
     width: 84px; height: 84px; margin: 0 auto 10px; border-radius: 8px;
     background: rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center;
-    overflow: hidden;
+    overflow: hidden; position: relative;
   }
   .charOption img { width: 42px; height: 56px; object-fit: contain; image-rendering: pixelated; }
   .charOption span { font-size: 12px; font-weight: 600; letter-spacing: 0.5px; }
+  .charOption.locked:not(.unlocked) .thumbWrap::after {
+    content: "\1F512"; position: absolute; top: 3px; right: 5px; font-size: 13px;
+    filter: drop-shadow(0 0 2px #000);
+  }
   #charSelectStatus { font-size: 11px; opacity: 0.55; margin-bottom: 14px; min-height: 14px; }
+  #codeGate { display: none; margin: -6px 0 16px; }
+  #codeGate.show { display: block; }
+  #codeGateLabel { font-size: 11px; opacity: 0.7; margin: 0 0 8px; }
+  #codeGateInput {
+    width: 110px; text-align: center; letter-spacing: 6px; font-size: 16px;
+    padding: 8px 0; border-radius: 6px; border: 1px solid rgba(255,255,255,0.3);
+    background: rgba(0,0,0,0.3); color: #eafbe6; margin-right: 8px;
+  }
+  #codeGateSubmit {
+    background: rgba(255,255,255,0.15); color: #eafbe6; border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 6px; padding: 8px 14px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  #codeGateMsg { font-size: 11px; min-height: 14px; margin: 8px 0 0; color: #ff8b8b; }
   #btnStartGame {
     background: #7CFC9E; color: #0a1a0d; border: none; border-radius: 8px;
     font-weight: 700; font-size: 14px; letter-spacing: 1px; padding: 12px 36px;
@@ -101,15 +118,12 @@
   <div id="charSelectPanel">
     <h2>CHOOSE YOUR CHARACTER</h2>
     <p id="charSelectSub">Pick a sprite, then press start</p>
-    <div id="charOptions">
-      <div class="charOption" data-sprite="a">
-        <div class="thumbWrap"><img src="https://raw.githubusercontent.com/schlerium/sprites/main/MV1.png" alt="Sprite A"></div>
-        <span>SPRITE A</span>
-      </div>
-      <div class="charOption" data-sprite="b">
-        <div class="thumbWrap"><img src="https://raw.githubusercontent.com/schlerium/sprites/main/BF0.png" alt="Sprite B"></div>
-        <span>SPRITE B</span>
-      </div>
+    <div id="charOptions"></div>
+    <div id="codeGate">
+      <p id="codeGateLabel">Enter code for Sprite A</p>
+      <input id="codeGateInput" type="password" inputmode="numeric" maxlength="6" placeholder="••••••">
+      <button id="codeGateSubmit">UNLOCK</button>
+      <p id="codeGateMsg"></p>
     </div>
     <div id="charSelectStatus">Connecting to server…</div>
     <button id="btnStartGame" disabled>START</button>
@@ -159,6 +173,7 @@
 <!-- Firebase (Realtime Database) - powers the multiplayer sync -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 
 <script>
 (function(){
@@ -220,26 +235,47 @@
     if (e.key === 'ArrowRight') keys.right = false;
   });
 
-  // ---------- Sprite sets ----------
-  // Each sprite has its own base URL + 4 walk frames per direction.
-  // Sprite A is already wired up to your existing hosted sprites.
-  // Sprite B is left blank ("") for you to fill in with your own paths.
-  const SPRITE_SETS = {
-    a: {
+  // =====================================================================
+  //  SPRITE ROSTER — the ONE place to add/edit/lock a sprite.
+  //  To add a new sprite: copy one {...} block below, give it a unique
+  //  "key" (single lowercase letter/word, must not repeat), a display
+  //  "name", set "locked" true/false, and fill in "base" + the 4 walk
+  //  frame filenames per direction. That's it — the character-select
+  //  screen, animation system, and multiplayer rendering all pick it up
+  //  automatically. No other file or line needs to change.
+  // =====================================================================
+  const SPRITE_ROSTER = [
+    {
+      key: 'a',
+      name: 'SPRITE A',
+      locked: true,
       base: "https://raw.githubusercontent.com/schlerium/sprites/main/",
       down:  ["MV1.png", "MV2.png", "MV1.png", "MV3.png"],
       up:    ["MB1.png", "MB2.png", "MB1.png", "MB3.png"],
       left:  ["ML0.png", "ML1.png", "ML0.png", "ML2.png"],
       right: ["MR0.png", "MR1.png", "MR0.png", "MR2.png"]
     },
-    b: {
+    {
+      key: 'b',
+      name: 'SPRITE B',
+      locked: false,
       base: "https://raw.githubusercontent.com/schlerium/sprites/main/",
       down:  ["BF0.png", "BF1.png", "BF0.png", "BF2.png"],
       up:    ["BB0.png", "BB1.png", "BB0.png", "BB2.png"],
       left:  ["BL0.png", "BL1.png", "BL0.png", "BL2.png"],
       right: ["BR0.png", "BR1.png", "BR0.png", "BR2.png"]
     }
-  };
+    // ,{
+    //   key: 'c',
+    //   name: 'SPRITE C',
+    //   locked: true,
+    //   base: "",
+    //   down:  ["", "", "", ""],
+    //   up:    ["", "", "", ""],
+    //   left:  ["", "", "", ""],
+    //   right: ["", "", "", ""]
+    // }
+  ];
 
   function makeFrame(base, file){
     if (!file) return null;
@@ -248,14 +284,31 @@
     img.src = base + file;
     return img;
   }
-  function buildAnims(setDef){
+  function buildAnims(entry){
     const o = {};
     ['down','up','left','right'].forEach(dir => {
-      o[dir] = setDef[dir].map(f => makeFrame(setDef.base, f));
+      o[dir] = entry[dir].map(f => makeFrame(entry.base, f));
     });
     return o;
   }
-  const animsBySprite = { a: buildAnims(SPRITE_SETS.a), b: buildAnims(SPRITE_SETS.b) };
+
+  const animsBySprite = {};
+  const LOCKED_SPRITES = [];
+  SPRITE_ROSTER.forEach((entry) => {
+    animsBySprite[entry.key] = buildAnims(entry);
+    if (entry.locked) LOCKED_SPRITES.push(entry.key);
+  });
+
+  // Build the character-select cards straight from the roster above.
+  const charOptionsEl = document.getElementById('charOptions');
+  SPRITE_ROSTER.forEach((entry) => {
+    const card = document.createElement('div');
+    card.className = 'charOption';
+    card.dataset.sprite = entry.key;
+    const previewSrc = entry.base && entry.down[0] ? entry.base + entry.down[0] : '';
+    card.innerHTML = '<div class="thumbWrap"><img src="' + previewSrc + '" alt="' + entry.name + '"></div><span>' + entry.name + '</span>';
+    charOptionsEl.appendChild(card);
+  });
 
   let mySprite = 'a';
   let walkIndex = 0, walkAcc = 0, facing = 'down', turning = false;
@@ -268,22 +321,16 @@
   // 2. Enable "Realtime Database" (start in test mode, then lock down rules later)
   // 3. Paste your project's config values below
   const firebaseConfig = {
-    apiKey: "AIzaSyBz6q7Cs2lVNn5lf2bSKKLVfI7Pb6HF3Dg",
-    authDomain: "gba-prototype.firebaseapp.com",
-    databaseURL: "https://gba-prototype-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "gba-prototype",
-    storageBucket: "gba-prototype.firebasestorage.app",
-    messagingSenderId: "1052035539915",
-    appId: "1:1052035539915:web:3e38c49b96daa2eb374c4e"
- 
+    apiKey: "",
+    authDomain: "",
+    databaseURL: "",
+    projectId: "",
+    storageBucket: "",
+    messagingSenderId: "",
+    appId: ""
   };
 
-  let playerId = localStorage.getItem('gba_player_id');
-  if (!playerId) {
-    playerId = 'p_' + Math.random().toString(36).slice(2, 10);
-    localStorage.setItem('gba_player_id', playerId);
-  }
-
+  let playerId = null; // set once anonymous auth completes
   let playerRef = null, playersRef = null;
   const remotePlayers = {};
   const STALE_MS = 8000;
@@ -297,22 +344,32 @@
       }
       firebase.initializeApp(firebaseConfig);
       const db = firebase.database();
-      playersRef = db.ref('players');
-      playerRef = db.ref('players/' + playerId);
-      playerRef.onDisconnect().remove();
 
-      playersRef.on('value', (snap) => {
-        const val = snap.val() || {};
-        for (const id in val) {
-          if (id === playerId) continue;
-          remotePlayers[id] = val[id];
-        }
-        for (const id in remotePlayers) {
-          if (!val[id]) delete remotePlayers[id];
-        }
+      statusEl.textContent = 'Signing in…';
+      firebase.auth().onAuthStateChanged((user) => {
+        if (!user) return;
+        playerId = user.uid;
+        playersRef = db.ref('players');
+        playerRef = db.ref('players/' + playerId);
+        playerRef.onDisconnect().remove();
+
+        playersRef.on('value', (snap) => {
+          const val = snap.val() || {};
+          for (const id in val) {
+            if (id === playerId) continue;
+            remotePlayers[id] = val[id];
+          }
+          for (const id in remotePlayers) {
+            if (!val[id]) delete remotePlayers[id];
+          }
+        });
+
+        statusEl.textContent = 'Connected';
       });
-
-      statusEl.textContent = 'Connected';
+      firebase.auth().signInAnonymously().catch((err) => {
+        console.error('Anonymous sign-in failed:', err);
+        statusEl.textContent = 'Offline (multiplayer unavailable)';
+      });
     } catch (err) {
       console.error('Firebase init failed:', err);
       statusEl.textContent = 'Offline (multiplayer unavailable)';
@@ -321,8 +378,8 @@
   initFirebase();
 
   function startNetworkSync(){
-    if (!playerRef) return;
     setInterval(() => {
+      if (!playerRef) return; // auth may still be completing
       playerRef.set({
         x: camX, y: camY,
         facing: facing, walkIndex: walkIndex,
@@ -332,14 +389,95 @@
     }, 100);
   }
 
+  // ---------- Sprite code locks ----------
+  // The real code for a locked sprite is never sent to the browser and never
+  // stored in this file. The player's guess is hashed locally, then the
+  // browser tries to WRITE that hash to unlockCheck/{their-uid}/{sprite}.
+  // A Firebase security rule only allows that write if the hash matches the
+  // one YOU stored (server-side only, unreadable to clients) at
+  // config/spriteLocks/{sprite}. A wrong guess is rejected with
+  // "permission denied" and reveals nothing. A small attempts counter also
+  // throttles repeated guessing from the same device.
+  const MAX_UNLOCK_ATTEMPTS = 20;
+  const unlockedSprites = new Set();
+
+  async function sha256Hex(str){
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function attemptUnlock(spriteKey, code){
+    if (!playerId) return { ok: false, msg: 'Still connecting… try again in a sec' };
+    const db = firebase.database();
+    const attemptsRef = db.ref('unlockAttempts/' + playerId + '/' + spriteKey);
+    try {
+      const snap = await attemptsRef.once('value');
+      const nextCount = (snap.val() || 0) + 1;
+      if (nextCount > MAX_UNLOCK_ATTEMPTS) {
+        return { ok: false, msg: 'Too many attempts on this device.' };
+      }
+      await attemptsRef.set(nextCount);
+    } catch (err) {
+      return { ok: false, msg: 'Too many attempts on this device.' };
+    }
+    const hash = await sha256Hex(code);
+    try {
+      await db.ref('unlockCheck/' + playerId + '/' + spriteKey).set(hash);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, msg: 'Incorrect code' };
+    }
+  }
+
   // ---------- Character select ----------
+  const codeGate = document.getElementById('codeGate');
+  const codeGateInput = document.getElementById('codeGateInput');
+  const codeGateMsg = document.getElementById('codeGateMsg');
+  const codeGateLabel = document.getElementById('codeGateLabel');
+  let pendingLockedSprite = null;
+
+  function selectSprite(el){
+    document.querySelectorAll('.charOption').forEach(o => o.classList.remove('selected'));
+    el.classList.add('selected');
+    mySprite = el.dataset.sprite;
+    document.getElementById('btnStartGame').disabled = false;
+    codeGate.classList.remove('show');
+  }
+
   document.querySelectorAll('.charOption').forEach((el) => {
+    if (LOCKED_SPRITES.includes(el.dataset.sprite)) el.classList.add('locked');
     el.addEventListener('click', () => {
-      document.querySelectorAll('.charOption').forEach(o => o.classList.remove('selected'));
-      el.classList.add('selected');
-      mySprite = el.dataset.sprite;
-      document.getElementById('btnStartGame').disabled = false;
+      const key = el.dataset.sprite;
+      if (LOCKED_SPRITES.includes(key) && !unlockedSprites.has(key)) {
+        pendingLockedSprite = key;
+        codeGateLabel.textContent = 'Enter code for Sprite ' + key.toUpperCase();
+        codeGateMsg.textContent = '';
+        codeGateInput.value = '';
+        codeGate.classList.add('show');
+        codeGateInput.focus();
+        return;
+      }
+      selectSprite(el);
     });
+  });
+
+  document.getElementById('codeGateSubmit').addEventListener('click', async () => {
+    if (!pendingLockedSprite) return;
+    const code = codeGateInput.value.trim();
+    if (!code) return;
+    codeGateMsg.style.color = '#eafbe6';
+    codeGateMsg.textContent = 'Checking…';
+    const result = await attemptUnlock(pendingLockedSprite, code);
+    if (result.ok) {
+      unlockedSprites.add(pendingLockedSprite);
+      const el = document.querySelector('.charOption[data-sprite="' + pendingLockedSprite + '"]');
+      el.classList.add('unlocked');
+      codeGate.classList.remove('show');
+      selectSprite(el);
+    } else {
+      codeGateMsg.style.color = '#ff8b8b';
+      codeGateMsg.textContent = result.msg;
+    }
   });
   document.getElementById('btnStartGame').addEventListener('click', () => {
     document.getElementById('charSelect').style.display = 'none';
