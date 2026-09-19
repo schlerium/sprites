@@ -317,15 +317,22 @@
   //  any of this.
   //
   //  30x30 white squares scattered at random world positions, at least
-  //  100px apart from each other (no upper limit on spread). Standing on
+  //  20px apart from each other (no upper limit on spread). Standing on
   //  one and pressing A saves your current position to Firebase; it's
   //  restored automatically the next time you sign in, instead of the
   //  default random spot near (0,0).
+  //
+  //  CHECKPOINTS: the generated layout (the actual x/y of each square) is
+  //  cached in localStorage the first time it's generated, and reused on
+  //  every later page load. This is what fixes the "checkpoint square is
+  //  gone after I sign back in" bug: previously CHECKPOINTS was re-randomized
+  //  on every load, so the squares moved away from wherever you'd saved.
   // =====================================================================
   const CHECKPOINT_SIZE = 30;
   const CHECKPOINT_COUNT = 8;
-  const CHECKPOINT_MIN_SPACING = 100; // minimum distance between any two checkpoints
-  const CHECKPOINT_SPREAD = 800;      // how far from the origin they can land
+  const CHECKPOINT_MIN_SPACING = 20;   // CHECKPOINTS: changed from 100 -> 20 (min distance between checkpoints)
+  const CHECKPOINT_SPREAD = 2000;      // CHECKPOINTS: changed from 800 -> 2000 (how far from the origin they can land)
+  const CHECKPOINT_STORAGE_KEY = 'checkpointLayout_v1'; // CHECKPOINTS: localStorage key used to persist the layout below
 
   function generateCheckpoints(){
     const pts = [];
@@ -339,7 +346,28 @@
     }
     return pts;
   }
-  const CHECKPOINTS = generateCheckpoints();
+
+  // CHECKPOINTS: load a previously-saved layout if one exists, otherwise
+  // generate a fresh one and save it so it stays fixed from now on.
+  function loadOrGenerateCheckpoints(){
+    try {
+      const saved = localStorage.getItem(CHECKPOINT_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length === CHECKPOINT_COUNT) return parsed;
+      }
+    } catch (err) {
+      console.error('Could not read saved checkpoint layout:', err);
+    }
+    const pts = generateCheckpoints();
+    try {
+      localStorage.setItem(CHECKPOINT_STORAGE_KEY, JSON.stringify(pts));
+    } catch (err) {
+      console.error('Could not persist checkpoint layout:', err);
+    }
+    return pts;
+  }
+  const CHECKPOINTS = loadOrGenerateCheckpoints(); // CHECKPOINTS: now fixed across reloads (see loadOrGenerateCheckpoints above)
 
   function checkpointRect(cp){
     return { x: cp.x, y: cp.y, w: CHECKPOINT_SIZE, h: CHECKPOINT_SIZE };
