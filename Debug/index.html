@@ -1,0 +1,1662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Infinite Grassland</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; width: 100vw; height: 100vh;
+    background: #000; overflow: hidden; touch-action: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  #viewport {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  }
+  canvas#screen {
+    width: 100%; height: 100%; object-fit: contain; aspect-ratio: 240 / 160;
+    image-rendering: pixelated; image-rendering: crisp-edges; background: #3a6b2a;
+  }
+  #overlay { position: absolute; inset: 0; pointer-events: none; user-select: none; }
+  .btn { pointer-events: auto; touch-action: none; background: rgba(255,255,255,0.14); border: 2px solid rgba(255,255,255,0.4); color: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; }
+  .btn:active, .btn.active { background: rgba(255,255,255,0.35); border-color: #fff; color: #fff; }
+
+  /* Top Bar */
+  #topBar { position: absolute; top: 10px; left: 12px; right: 12px; display: flex; justify-content: space-between; }
+  .nav-grp { display: flex; gap: 10px; }
+  .icon-btn { width: 34px; height: 34px; border-radius: 6px; font-size: 18px; }
+
+  /* Shoulders */
+  .shoulder { position: absolute; top: 25%; width: 80px; height: 40px; font-size: 22px; font-weight: bold; }
+  #btnL { left: 0; border-left: none; border-radius: 0 20px 20px 0; justify-content: flex-end; padding-right: 18px; }
+  #btnR { right: 0; border-right: none; border-radius: 20px 0 0 20px; justify-content: flex-start; padding-left: 18px; }
+
+  /* Controls */
+  #dpad {
+    position: absolute; bottom: 25vh; left: 16px;
+    width: 138px; height: 138px; display: grid;
+    grid-template-columns: 46px 46px 46px; grid-template-rows: 46px 46px 46px;
+  }
+  #up { grid-column: 2; grid-row: 1; border-radius: 8px 8px 0 0; border-bottom: none; }
+  #left { grid-column: 1; grid-row: 2; border-radius: 8px 0 0 8px; border-right: none; }
+  #dpad-center { grid-column: 2; grid-row: 2; background: rgba(255,255,255,0.14); }
+  #right { grid-column: 3; grid-row: 2; border-radius: 0 8px 8px 0; border-left: none; }
+  #down { grid-column: 2; grid-row: 3; border-radius: 0 0 8px 8px; border-top: none; }
+
+  #actionCluster { position: absolute; bottom: 25vh; right: 16px; width: 140px; height: 138px; }
+  .abtn { position: absolute; width: 60px; height: 60px; border-radius: 50%; font-size: 24px; font-weight: bold; }
+  #btnB { bottom: 0; left: 0; }
+  #btnA { top: 0; right: 0; }
+
+  #metaCluster { position: absolute; bottom: 18vh; left: 50%; transform: translateX(-50%); display: flex; gap: 24px; }
+  .pill-btn { width: 64px; height: 20px; border-radius: 10px; font-size: 9px; font-weight: bold; transform: rotate(-25deg); }
+
+  #coords { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.4); font-size: 11px; font-family: monospace; }
+
+  /* Checkpoints Toast */
+  #checkpointToast {
+    position: absolute; bottom: 6%; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.75); color: #eafbe6; font-size: 11px; font-weight: 600;
+    padding: 7px 16px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.25);
+    opacity: 0; transition: opacity 0.4s; pointer-events: none; white-space: nowrap;
+  }
+  #checkpointToast.show { opacity: 1; }
+
+  /* Global chat */
+  #chatPanel {
+    position: absolute; top: 46px; left: 6px; right: 6px; bottom: 75%;
+    display: none; flex-direction: column; pointer-events: auto;
+    background: rgba(0,0,0,0.82); border: 2px solid #b6e66b; border-radius: 6px; overflow: hidden;
+  }
+  #chatPanel.show { display: flex; }
+  #chatLog { flex: 1; overflow-y: auto; padding: 6px 8px; font-size: 10px; font-family: monospace; color: #eee; }
+  #chatLog .msg { margin-bottom: 3px; line-height: 1.3; word-break: break-word; }
+  #chatLog .who { font-weight: 700; margin-right: 4px; }
+  #chatInputRow { display: flex; border-top: 1px solid rgba(255,255,255,0.25); }
+  #chatInput { flex: 1; background: transparent; border: none; color: #eee; font-size: 11px; padding: 7px 8px; font-family: monospace; }
+  #chatInput:focus { outline: none; }
+  #chatSendBtn { background: rgba(255,255,255,0.12); border: none; color: #7CFC9E; padding: 0 14px; font-size: 11px; font-weight: 700; cursor: pointer; }
+
+  @media (orientation: landscape) {
+    .shoulder { top: 22%; }
+    #dpad { bottom: 14vh; left: 24px; }
+    #actionCluster { bottom: 14vh; right: 24px; }
+    #metaCluster { bottom: 8vh; }
+  }
+
+  /* Character select screen */
+  #charSelect {
+    position: fixed; inset: 0; z-index: 1000;
+    background: radial-gradient(circle at center, #1e3a24 0%, #0a1a0d 100%);
+    display: flex; align-items: center; justify-content: center;
+    color: #eafbe6;
+  }
+  #charSelectPanel { text-align: center; padding: 20px; max-width: 420px; width: 90%; }
+  #charSelectPanel h2 { margin: 0 0 4px; font-size: 20px; letter-spacing: 1px; }
+  #charSelectSub { margin: 0 0 20px; font-size: 12px; opacity: 0.6; }
+  #charOptions { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; margin-bottom: 20px; max-height: 46vh; overflow-y: auto; }
+  .charOption {
+    width: 130px; padding: 14px 8px; border-radius: 12px;
+    border: 2px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.06);
+    cursor: pointer; transition: border-color 0.15s, background 0.15s;
+  }
+  .charOption:hover { background: rgba(255,255,255,0.12); }
+  .charOption.selected { border-color: #7CFC9E; background: rgba(124,252,158,0.15); }
+  .charOption .thumbWrap {
+    width: 84px; height: 84px; margin: 0 auto 10px; border-radius: 8px;
+    background: rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center;
+    overflow: hidden; position: relative;
+  }
+  .charOption img { width: 42px; height: 56px; object-fit: contain; image-rendering: pixelated; }
+  .charOption span { font-size: 12px; font-weight: 600; letter-spacing: 0.5px; }
+  .charOption.locked:not(.unlocked) .thumbWrap::after {
+    content: "\1F512"; position: absolute; top: 3px; right: 5px; font-size: 13px;
+    filter: drop-shadow(0 0 2px #000);
+  }
+  #charSelectStatus { font-size: 11px; opacity: 0.55; margin-bottom: 14px; min-height: 14px; }
+  #codeGate { display: none; margin: -6px 0 16px; }
+  #codeGate.show { display: block; }
+  #codeGateLabel { font-size: 11px; opacity: 0.7; margin: 0 0 8px; }
+  #codeGateInput {
+    width: 110px; text-align: center; letter-spacing: 6px; font-size: 16px;
+    padding: 8px 0; border-radius: 6px; border: 1px solid rgba(255,255,255,0.3);
+    background: rgba(0,0,0,0.3); color: #eafbe6; margin-right: 8px;
+  }
+  #codeGateSubmit {
+    background: rgba(255,255,255,0.15); color: #eafbe6; border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 6px; padding: 8px 14px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  #codeGateMsg { font-size: 11px; min-height: 14px; margin: 8px 0 0; color: #ff8b8b; }
+  #btnStartGame {
+    background: #7CFC9E; color: #0a1a0d; border: none; border-radius: 8px;
+    font-weight: 700; font-size: 14px; letter-spacing: 1px; padding: 12px 36px;
+    cursor: pointer; opacity: 0.4; pointer-events: none; transition: opacity 0.15s;
+  }
+  #btnStartGame:not(:disabled) { opacity: 1; pointer-events: auto; }
+</style>
+</head>
+<body>
+
+<div id="charSelect">
+  <div id="charSelectPanel">
+    <h2>CHOOSE YOUR CHARACTER</h2>
+    <p id="charSelectSub">Pick a sprite, then press start</p>
+    <div id="charOptions"></div>
+    <div id="codeGate">
+      <p id="codeGateLabel">Enter code for Admin</p>
+      <input id="codeGateInput" type="password" inputmode="numeric" maxlength="6" placeholder="••••••">
+      <button id="codeGateSubmit">UNLOCK</button>
+      <p id="codeGateMsg"></p>
+    </div>
+    <div id="charSelectStatus">Connecting to server…</div>
+    <button id="btnStartGame" disabled>START</button>
+  </div>
+</div>
+
+<div id="viewport">
+  <canvas id="screen" width="240" height="160"></canvas>
+
+  <div id="overlay">
+    <div id="topBar">
+      <div class="nav-grp">
+        <div class="btn icon-btn" id="btnSave">&#x2913;</div>
+        <div class="btn icon-btn" id="btnLoad">&#x2912;</div>
+      </div>
+      <div class="nav-grp">
+        <div class="btn icon-btn" id="btnChatToggle">&#128172;</div>
+        <div class="btn icon-btn" id="btnFastForward">&#x25B7;&#x25B7;</div>
+        <div class="btn icon-btn" id="btnMenu">&#x2261;</div>
+      </div>
+    </div>
+
+    <div id="chatPanel">
+      <div id="chatLog"></div>
+      <div id="chatInputRow">
+        <input id="chatInput" type="text" maxlength="200" placeholder="Type">
+        <button id="chatSendBtn">SEND</button>
+      </div>
+    </div>
+
+    <div class="btn shoulder" id="btnL">L</div>
+    <div class="btn shoulder" id="btnR">R</div>
+
+    <div id="dpad">
+      <div class="btn" id="up">&#9650;</div>
+      <div class="btn" id="left">&#9664;</div>
+      <div id="dpad-center"></div>
+      <div class="btn" id="right">&#9654;</div>
+      <div class="btn" id="down">&#9660;</div>
+    </div>
+
+    <div id="actionCluster">
+      <div class="btn abtn" id="btnB">B</div>
+      <div class="btn abtn" id="btnA">A</div>
+    </div>
+
+    <div id="metaCluster">
+      <div class="btn pill-btn" id="btnSelect">SELECT</div>
+      <div class="btn pill-btn" id="btnStart">START</div>
+    </div>
+
+    <div id="coords">x:0 y:0</div>
+    <div id="checkpointToast"></div>
+  </div>
+</div>
+
+<!-- Firebase Realtime Database -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
+<script>
+(function(){
+  const canvas = document.getElementById('screen');
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  const W = 240, H = 160, TILE = 4;
+  const SPRITE_W = 21, SPRITE_H = 28;
+  const WORLD_TILE = 16;
+  const STEP_SIZE = 16;
+
+  function hitboxOf(worldX, worldY){
+    return { x: worldX, y: worldY, w: 16, h: 16 };
+  }
+  function overlapArea(a, b){
+    const ox = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+    const oy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+    return ox * oy;
+  }
+
+  function collidesWithOthers(curX, curY, nextX, nextY){
+    const mineNow = hitboxOf(curX, curY);
+    const mineNext = hitboxOf(nextX, nextY);
+    const now = Date.now();
+    for (const id in remotePlayers){
+      const p = remotePlayers[id];
+      if (!p || now - (p.t || 0) > STALE_MS) continue;
+      const theirs = hitboxOf(p.x, p.y);
+      const before = overlapArea(mineNow, theirs);
+      const after = overlapArea(mineNext, theirs);
+      if (after > 0 && after >= before) return true;
+    }
+    return false;
+  }
+
+  function hash2(x, y){
+    let h = (x * 374761393 + y * 668265263) ^ ((x * 374761393 + y * 668265263) >> 13);
+    return (((h * 1274126177) ^ ((h * 1274126177) >> 16)) >>> 0) / 4294967295;
+  }
+
+  const BASE = [58, 107, 42], SHADE_LIGHT = [70, 122, 51], SHADE_DARK = [46, 90, 33], BLADE = [83, 140, 60];
+  function tileColor(tx, ty){
+    const r = hash2(tx, ty);
+    return r < 0.06 ? SHADE_DARK : (r < 0.12 ? SHADE_LIGHT : (r < 0.16 ? BLADE : BASE));
+  }
+
+  let camX = 0;
+  let camY = 0;
+  const SPEED = 1.0;
+  const keys = { up: false, down: false, left: false, right: false };
+
+  function bindHold(el, dir){
+    const set = (v) => (e) => { keys[dir] = v; el.classList.toggle('active', v); if(e) e.preventDefault(); };
+    el.addEventListener('pointerdown', set(true));
+    el.addEventListener('pointerup', set(false));
+    el.addEventListener('pointerleave', set(false));
+    el.addEventListener('pointercancel', set(false));
+  }
+  bindHold(document.getElementById('up'), 'up');
+  bindHold(document.getElementById('down'), 'down');
+  bindHold(document.getElementById('left'), 'left');
+  bindHold(document.getElementById('right'), 'right');
+
+  function bindHook(id){
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('pointerdown', (e) => { e.preventDefault(); el.classList.add('active'); });
+    const off = (e) => { if (e) e.preventDefault(); el.classList.remove('active'); };
+    el.addEventListener('pointerup', off);
+    el.addEventListener('pointerleave', off);
+    el.addEventListener('pointercancel', off);
+  }
+  ['btnB','btnL','btnR','btnSelect','btnStart','btnSave','btnLoad','btnFastForward','btnMenu'].forEach(bindHook);
+
+  // =====================================================================
+  //  CHECKPOINTS — Exact 1-Block Grid Alignment & Custom PNG Support
+  // =====================================================================
+  const CHECKPOINT_SIZE = 16;      // Exactly 1 block (16x16 world px)
+  const CHECKPOINT_SPACING = 160;  // Multiple of 16 (10 blocks = 160 px)
+  const CHECKPOINT_SPREAD = 1280;  // Extends in exact 16px multiples (80 blocks)
+  const CHECKPOINT_STORAGE_KEY = 'checkpointLayout_v3'; // Clears old off-grid layouts
+
+  // PNG Configuration for Checkpoints:
+  const CHECKPOINT_BASE = 'https://raw.githubusercontent.com/schlerium/sprites/main/';
+  const CHECKPOINT_FILE = 'save_point.png'; // Set your checkpoint PNG filename here (e.g., 'save_point.png')
+  let checkpointImg = null;
+  function setCheckpointImage(file, base){
+    if (!file) { checkpointImg = null; return; }
+    checkpointImg = new Image();
+    checkpointImg.crossOrigin = 'anonymous';
+    checkpointImg.src = (base !== undefined ? base : CHECKPOINT_BASE) + file;
+  }
+  setCheckpointImage(CHECKPOINT_FILE);
+
+  function generateCheckpoints(){
+    const pts = [];
+    const step = CHECKPOINT_SPACING;
+    const max = Math.floor(CHECKPOINT_SPREAD / step) * step;
+    for (let x = -max; x <= max; x += step){
+      for (let y = -max; y <= max; y += step){
+        const gx = Math.round(x / WORLD_TILE) * WORLD_TILE;
+        const gy = Math.round(y / WORLD_TILE) * WORLD_TILE;
+        pts.push({ x: gx, y: gy });
+      }
+    }
+    return pts;
+  }
+
+  function loadOrGenerateCheckpoints(){
+    try {
+      const saved = localStorage.getItem(CHECKPOINT_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (err) {
+      console.error('Could not read saved checkpoint layout:', err);
+    }
+    const pts = generateCheckpoints();
+    try {
+      localStorage.setItem(CHECKPOINT_STORAGE_KEY, JSON.stringify(pts));
+    } catch (err) {
+      console.error('Could not persist checkpoint layout:', err);
+    }
+    return pts;
+  }
+  const CHECKPOINTS = loadOrGenerateCheckpoints();
+
+  function drawCheckpoints(){
+    for (const cp of CHECKPOINTS){
+      const px = Math.round(SPRITE_X + (cp.x - camX));
+      const py = Math.round(SPRITE_Y + (cp.y - camY));
+      if (px <= -CHECKPOINT_SIZE || px >= W || py <= -CHECKPOINT_SIZE || py >= H) continue;
+      if (checkpointImg && checkpointImg.complete && checkpointImg.naturalWidth > 0){
+        ctx.drawImage(checkpointImg, px, py, CHECKPOINT_SIZE, CHECKPOINT_SIZE);
+      } else {
+        // Gridwise 1-block placeholder until PNG is linked
+        ctx.fillStyle = 'rgba(255,255,255,0.45)';
+        ctx.fillRect(px, py, CHECKPOINT_SIZE, CHECKPOINT_SIZE);
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px + 0.5, py + 0.5, CHECKPOINT_SIZE - 1, CHECKPOINT_SIZE - 1);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(px + 4, py + 4, CHECKPOINT_SIZE - 8, CHECKPOINT_SIZE - 8);
+      }
+    }
+  }
+
+  function checkpointUnderPlayer(){
+    return CHECKPOINTS.find((cp) => cp.x === camX && cp.y === camY) || null;
+  }
+
+  const checkpointToast = document.getElementById('checkpointToast');
+  let checkpointToastTimer = null;
+  function showCheckpointToast(text){
+    checkpointToast.textContent = text;
+    checkpointToast.classList.add('show');
+    clearTimeout(checkpointToastTimer);
+    checkpointToastTimer = setTimeout(() => checkpointToast.classList.remove('show'), 2000);
+  }
+
+  async function trySaveCheckpoint(){
+    if (!playerId) return false;
+    const cp = checkpointUnderPlayer();
+    if (!cp) return false;
+    try {
+      await firebase.database().ref('playerCheckpoints/' + playerId).set({ x: camX, y: camY, t: Date.now() });
+      showCheckpointToast('Checkpoint saved');
+      return true;
+    } catch (err) {
+      console.error('Checkpoint save failed:', err);
+      return false;
+    }
+  }
+
+  async function loadSavedCheckpoint(db, uid){
+    try {
+      const snap = await db.ref('playerCheckpoints/' + uid).once('value');
+      const val = snap.val();
+      if (val && typeof val.x === 'number' && typeof val.y === 'number') {
+        const gx = Math.floor(val.x / STEP_SIZE) * STEP_SIZE;
+        const gy = Math.floor(val.y / STEP_SIZE) * STEP_SIZE;
+        camX = gx; camY = gy;
+        stepping = false; stepProgress = 0;
+        if (gx !== val.x || gy !== val.y) {
+          db.ref('playerCheckpoints/' + uid).update({ x: gx, y: gy });
+        }
+      }
+    } catch (err) {
+      console.error('Could not load saved checkpoint:', err);
+    }
+  }
+
+  // =====================================================================
+  //  COLLECTIBLES — 10-Item Random Spawn, Solid Hitbox & 5-Hour Respawn
+  // =====================================================================
+  const TOTAL_ITEMS = 10;
+  const ITEM_RESPAWN_INTERVAL_MS = 5 * 60 * 60 * 1000; // 5 hours in milliseconds
+  const COLLECTIBLE_TILE = 16;
+  const COLLECTIBLE_STORAGE_KEY = 'minemon_items_v2';
+
+  // PNG Configuration for Collectibles:
+  const COLLECTIBLE_BASE = 'https://raw.githubusercontent.com/schlerium/sprites/main/';
+  const COLLECTIBLE_FILE = 'coin.png'; // Set your item PNG filename here (e.g., 'item_chest.png')
+  let collectibleImg = null;
+  function setCollectibleImage(file, base){
+    if (!file) { collectibleImg = null; return; }
+    collectibleImg = new Image();
+    collectibleImg.crossOrigin = 'anonymous';
+    collectibleImg.src = (base !== undefined ? base : COLLECTIBLE_BASE) + file;
+  }
+  setCollectibleImage(COLLECTIBLE_FILE);
+
+  let spawnedItems = [];
+  let lastItemRespawnTime = Date.now();
+
+  function isTileOccupied(tx, ty, excludeId){
+    if (tx === 0 && ty === 0) return true; // Spawn tile
+    if (typeof LUDO_TILES !== 'undefined' && LUDO_TILES.some((t) => t.x === tx && t.y === ty)) return true;
+    if (CHECKPOINTS.some((cp) => cp.x === tx && cp.y === ty)) return true;
+    const anchor = worldTileAnchorOf(tx, ty);
+    if (WORLD_BLOCKS.some((b) => !b.conflicted && !b.walkable && pointInBlock(anchor.x, anchor.y, b))) return true;
+    if (spawnedItems.some((it) => it.id !== excludeId && it.x === tx && it.y === ty)) return true;
+    return false;
+  }
+
+  function getRandomSpawnTile(excludeId){
+    const RANGE = 10; // Within 10 tiles (160 px) around spawn (0,0)
+    for (let attempts = 0; attempts < 300; attempts++){
+      const rx = (Math.floor(Math.random() * (RANGE * 2 + 1)) - RANGE) * COLLECTIBLE_TILE;
+      const ry = (Math.floor(Math.random() * (RANGE * 2 + 1)) - RANGE) * COLLECTIBLE_TILE;
+      if (!isTileOccupied(rx, ry, excludeId)){
+        return { x: rx, y: ry };
+      }
+    }
+    return { x: 32, y: 32 };
+  }
+
+  function saveItemsLocal(){
+    try {
+      localStorage.setItem(COLLECTIBLE_STORAGE_KEY, JSON.stringify({
+        lastRespawnTime: lastItemRespawnTime,
+        items: spawnedItems
+      }));
+    } catch (e) {
+      console.error('Could not save items locally:', e);
+    }
+  }
+
+  function checkItemRespawn(){
+    const now = Date.now();
+    const elapsed = now - lastItemRespawnTime;
+    if (elapsed >= ITEM_RESPAWN_INTERVAL_MS){
+      const cycles = Math.floor(elapsed / ITEM_RESPAWN_INTERVAL_MS);
+      lastItemRespawnTime += cycles * ITEM_RESPAWN_INTERVAL_MS;
+      let respawned = 0;
+      for (const it of spawnedItems){
+        if (it.collected){
+          const pos = getRandomSpawnTile(it.id);
+          it.x = pos.x;
+          it.y = pos.y;
+          it.collected = false; // Respawn collected item in shuffled location
+          respawned++;
+        }
+        // Uncollected items stay exactly where they are until collected
+      }
+      saveItemsLocal();
+      syncItemsToFirebase();
+    }
+  }
+  setInterval(checkItemRespawn, 10000); // Check cycle every 10 seconds
+
+  function loadOrInitItems(){
+    try {
+      const raw = localStorage.getItem(COLLECTIBLE_STORAGE_KEY);
+      if (raw){
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.items) && parsed.items.length === TOTAL_ITEMS){
+          spawnedItems = parsed.items;
+          lastItemRespawnTime = typeof parsed.lastRespawnTime === 'number' ? parsed.lastRespawnTime : Date.now();
+          checkItemRespawn();
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('Could not load items from storage:', e);
+    }
+
+    spawnedItems = [];
+    lastItemRespawnTime = Date.now();
+    for (let i = 0; i < TOTAL_ITEMS; i++){
+      const id = 'item_' + i;
+      const pos = getRandomSpawnTile(id);
+      spawnedItems.push({
+        id: id,
+        x: pos.x,
+        y: pos.y,
+        collected: false
+      });
+    }
+    saveItemsLocal();
+  }
+  loadOrInitItems();
+
+  function syncItemsToFirebase(){
+    if (!playerId || typeof firebase === 'undefined' || !firebase.apps || !firebase.apps.length) return;
+    try {
+      firebase.database().ref('spawnedItems').set({
+        lastRespawnTime: lastItemRespawnTime,
+        items: spawnedItems
+      }).catch(() => {});
+    } catch (e) {}
+  }
+
+  function initFirebaseItems(db){
+    try {
+      const ref = db.ref('spawnedItems');
+      ref.on('value', (snap) => {
+        const val = snap.val();
+        if (val && Array.isArray(val.items) && val.items.length === TOTAL_ITEMS){
+          spawnedItems = val.items;
+          lastItemRespawnTime = typeof val.lastRespawnTime === 'number' ? val.lastRespawnTime : Date.now();
+          saveItemsLocal();
+          checkItemRespawn();
+        } else if (playerId) {
+          ref.set({
+            lastRespawnTime: lastItemRespawnTime,
+            items: spawnedItems
+          }).catch(() => {});
+        }
+      });
+    } catch (e) {}
+  }
+
+  // Hitbox Collision: Blocks players before walking onto active items
+  function collidesWithCollectibles(nextX, nextY){
+    for (const it of spawnedItems){
+      if (it.collected) continue; // Once collected, the tile is walkable
+      if (it.x === nextX && it.y === nextY) return true; // Solid hitbox
+    }
+    return false;
+  }
+
+  function drawCollectibles(){
+    for (const it of spawnedItems){
+      if (it.collected) continue;
+      const px = Math.round(SPRITE_X + (it.x - camX));
+      const py = Math.round(SPRITE_Y + (it.y - camY));
+      if (px <= -COLLECTIBLE_TILE || px >= W || py <= -COLLECTIBLE_TILE || py >= H) continue;
+      if (collectibleImg && collectibleImg.complete && collectibleImg.naturalWidth > 0){
+        ctx.drawImage(collectibleImg, px, py, COLLECTIBLE_TILE, COLLECTIBLE_TILE);
+      } else {
+        // Crisp 16x16 coin/chest placeholder until PNG is linked
+        const cx = px + COLLECTIBLE_TILE / 2, cy = py + COLLECTIBLE_TILE / 2;
+        ctx.fillStyle = '#e8c34a';
+        ctx.beginPath(); ctx.arc(cx, cy, 5.5, 0, 6.2832); ctx.fill();
+        ctx.strokeStyle = '#8a6a10'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(cx, cy, 5.5, 0, 6.2832); ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(Math.round(cx - 2), Math.round(cy - 2), 2, 2);
+      }
+    }
+  }
+
+  function facingCollectibleUnderPlayer(){
+    return spawnedItems.find((it) => {
+      if (it.collected) return false;
+      if (it.x === camX + COLLECTIBLE_TILE && it.y === camY && facing === 'right') return true;
+      if (it.x === camX - COLLECTIBLE_TILE && it.y === camY && facing === 'left') return true;
+      if (it.x === camX && it.y === camY - COLLECTIBLE_TILE && facing === 'up') return true;
+      if (it.x === camX && it.y === camY + COLLECTIBLE_TILE && facing === 'down') return true;
+      return false;
+    }) || null;
+  }
+
+  async function tryCollectItem(){
+    const it = facingCollectibleUnderPlayer();
+    if (!it) return false;
+    it.collected = true; // Item vanishes and tile becomes walkable
+    saveItemsLocal();
+    syncItemsToFirebase();
+    showCheckpointToast('Picked up item');
+
+    if (playerId && typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length){
+      try {
+        await firebase.database().ref('inventory/' + playerId + '/' + it.id).set({ t: Date.now() });
+      } catch (err) {
+        console.error('Inventory record failed:', err);
+      }
+    }
+    return true;
+  }
+
+  // Unified action button A handler
+  function handleActionA(){
+    if (typeof L !== 'undefined' && L.open) { ludoInputA(); return; }
+    if (typeof ludoOnSpot === 'function' && ludoOnSpot()) { ludoTryEnter(); return; }
+    if (tryCollectItem()) return;
+    trySaveCheckpoint();
+  }
+  document.getElementById('btnA').addEventListener('pointerdown', handleActionA);
+  window.addEventListener('keydown', (e) => {
+    if (document.activeElement && document.activeElement.id === 'chatInput') return;
+    if (typeof ludoTyping === 'function' && ludoTyping()) return;
+    if (e.key === 'a' || e.key === 'z' || e.key === 'Enter') handleActionA();
+  });
+
+  // =====================================================================
+  //  WORLD ASSETS — Buildings & Tiles
+  // =====================================================================
+  const WORLD_ASSET_ROSTER = [
+    {
+      key: 'asset1',
+      name: 'Pokemart',
+      base: 'https://raw.githubusercontent.com/schlerium/sprites/main/',
+      x: 48, y: 48,
+      rows: 4, cols: 4,
+      blocks: {
+        r1c1: { file: 'shop11.png' }, r1c2: { file: 'shop12.png' }, r1c3: { file: 'shop13.png' }, r1c4: { file: 'shop14.png' },
+        r2c1: { file: 'shop21.png' }, r2c2: { file: 'shop22.png' }, r2c3: { file: 'shop23.png' }, r2c4: { file: 'shop24.png' },
+        r3c1: { file: 'shop31.png' }, r3c2: { file: 'shop32.png' }, r3c3: { file: 'shop33.png' }, r3c4: { file: 'shop34.png' },
+        r4c1: { file: 'shop41.png' }, r4c2: { file: 'shop42.png' },
+        r4c3: { file: 'shop43.png', walkable: true, enter: true, enterFrames: [] },
+        r4c4: { file: 'shop44.png' },
+      }
+    },
+    {
+      key: 'asset2',
+      name: '',
+      base: '',
+      x: 0, y: 0,
+      rows: 0, cols: 0,
+      blocks: {}
+    }
+  ];
+
+  function worldTileAnchorOf(worldX, worldY){
+    return { x: worldX + WORLD_TILE / 2, y: worldY + WORLD_TILE / 2 };
+  }
+  function pointInBlock(px, py, b){
+    return px >= b.x && px < b.x + WORLD_TILE && py >= b.y && py < b.y + WORLD_TILE;
+  }
+  function worldBlockDefaults(b){
+    return Object.assign({ file: '', walkable: false, enter: false, enterFrames: [], overPlayer: false }, b || {});
+  }
+  function makeWorldBlockImage(base, file){
+    if (!file) return null;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = (base || '') + file;
+    return img;
+  }
+
+  const WORLD_BLOCKS = [];
+  (function buildWorldBlocks(){
+    const tileMap = {};
+    WORLD_ASSET_ROSTER.forEach((asset) => {
+      if (!asset.rows || !asset.cols) return;
+      for (let r = 1; r <= asset.rows; r++){
+        for (let c = 1; c <= asset.cols; c++){
+          const key = 'r' + r + 'c' + c;
+          const block = worldBlockDefaults(asset.blocks[key]);
+          const worldX = asset.x + (c - 1) * WORLD_TILE;
+          const worldY = asset.y + (r - 1) * WORLD_TILE;
+          const entry = {
+            assetKey: asset.key, blockKey: key,
+            x: worldX, y: worldY,
+            file: block.file, walkable: block.walkable, enter: block.enter, enterFrames: block.enterFrames,
+            overPlayer: block.overPlayer,
+            img: makeWorldBlockImage(asset.base, block.file),
+            conflicted: false
+          };
+          const tileId = worldX + ',' + worldY;
+          (tileMap[tileId] || (tileMap[tileId] = [])).push(entry);
+          WORLD_BLOCKS.push(entry);
+        }
+      }
+    });
+    Object.keys(tileMap).forEach((tileId) => {
+      const claimants = tileMap[tileId];
+      if (claimants.length > 1){
+        claimants.forEach((b) => { b.conflicted = true; });
+        console.warn('WORLD ASSETS: overlap at world tile (' + tileId + ') between: ' +
+          claimants.map((b) => b.assetKey + '/' + b.blockKey).join(', '));
+      }
+    });
+  })();
+
+  function drawWorldBlock(b){
+    const px = Math.round(SPRITE_X + (b.x - camX));
+    const py = Math.round(SPRITE_Y + (b.y - camY));
+    if (px <= -WORLD_TILE || px >= W || py <= -WORLD_TILE || py >= H) return;
+    if (b.img && b.img.complete && b.img.naturalWidth > 0){
+      ctx.drawImage(b.img, px, py, WORLD_TILE, WORLD_TILE);
+    } else {
+      ctx.fillStyle = b.walkable ? 'rgba(120,220,140,0.35)' : 'rgba(120,140,160,0.35)';
+      ctx.fillRect(px, py, WORLD_TILE, WORLD_TILE);
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(px + 0.5, py + 0.5, WORLD_TILE - 1, WORLD_TILE - 1);
+    }
+  }
+
+  function collidesWithWorldAssets(nextX, nextY){
+    const mineNext = worldTileAnchorOf(nextX, nextY);
+    for (const b of WORLD_BLOCKS){
+      if (b.conflicted || b.walkable) continue;
+      if (pointInBlock(mineNext.x, mineNext.y, b)) return true;
+    }
+    return false;
+  }
+  function findEnterBlockUnderPlayer(){
+    const mine = worldTileAnchorOf(camX, camY);
+    return WORLD_BLOCKS.find((b) => b.enter && !b.conflicted &&
+      pointInBlock(mine.x, mine.y, b)) || null;
+  }
+
+  let entering = false, enterPhase = null, enterAlpha = 0, enterFadeAcc = 0;
+  let enterReturnX = 0, enterReturnY = 0;
+  const ENTER_FADE_MS = 350;
+
+  function updateEnterSequence(){
+    enterFadeAcc += 1000 / 60;
+    const t = Math.min(1, enterFadeAcc / ENTER_FADE_MS);
+    if (enterPhase === 'out'){
+      enterAlpha = t;
+      if (t >= 1){
+        camX = enterReturnX; camY = enterReturnY;
+        enterPhase = 'in'; enterFadeAcc = 0;
+      }
+    } else if (enterPhase === 'in'){
+      enterAlpha = 1 - t;
+      if (t >= 1){
+        entering = false; enterPhase = null; enterAlpha = 0;
+      }
+    }
+  }
+  function drawEnterOverlay(){
+    if (enterAlpha <= 0) return;
+    ctx.fillStyle = '#000';
+    ctx.globalAlpha = enterAlpha;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (document.activeElement && document.activeElement.id === 'chatInput') return;
+    if (e.key === 'ArrowUp') keys.up = true;
+    if (e.key === 'ArrowDown') keys.down = true;
+    if (e.key === 'ArrowLeft') keys.left = true;
+    if (e.key === 'ArrowRight') keys.right = true;
+  });
+  window.addEventListener('keyup', (e) => {
+    if (document.activeElement && document.activeElement.id === 'chatInput') return;
+    if (e.key === 'ArrowUp') keys.up = false;
+    if (e.key === 'ArrowDown') keys.down = false;
+    if (e.key === 'ArrowLeft') keys.left = false;
+    if (e.key === 'ArrowRight') keys.right = false;
+  });
+
+  // =====================================================================
+  //  SPRITE ROSTER
+  // =====================================================================
+  const SPRITE_ROSTER = [
+    {
+      key: 'a',
+      name: 'Admin',
+      locked: true,
+      base: "https://raw.githubusercontent.com/schlerium/sprites/main/",
+      down:  ["MV1.png", "MV2.png", "MV1.png", "MV3.png"],
+      up:    ["MB1.png", "MB2.png", "MB1.png", "MB3.png"],
+      left:  ["ML0.png", "ML1.png", "ML0.png", "ML2.png"],
+      right: ["MR0.png", "MR1.png", "MR0.png", "MR2.png"],
+      hitbox: { w: 18, h: 25 }
+    },
+    {
+      key: 'b',
+      name: 'Adam',
+      locked: false,
+      base: "https://raw.githubusercontent.com/schlerium/sprites/main/",
+      down:  ["BF0.png", "BF1.png", "BF0.png", "BF2.png"],
+      up:    ["BB0.png", "BB1.png", "BB0.png", "BB2.png"],
+      left:  ["BL0.png", "BL1.png", "BL0.png", "BL2.png"],
+      right: ["BR0.png", "BR1.png", "BR0.png", "BR2.png"],
+      hitbox: { w: 18, h: 25 }
+    },
+    {
+      key: 'c',
+      name: 'Ash',
+      locked: true,
+      base: "https://raw.githubusercontent.com/schlerium/sprites/main/",
+      down:  ["ak0.png", "ak1.png", "ak0.png", "ak2.png"],
+      up:    ["akb0.png", "akb1.png", "akb0.png", "akb2.png"],
+      left:  ["akl0.png", "akl1.png", "akl0.png", "ak2.png"],
+      right: ["akr0.png", "akr1.png", "akr0.png", "ak2.png"],
+      hitbox: { w: 16, h: 19 }
+    }
+  ];
+
+  function makeFrame(base, file){
+    if (!file) return null;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = base + file;
+    return img;
+  }
+  function buildAnims(entry){
+    const o = {};
+    ['down','up','left','right'].forEach(dir => {
+      o[dir] = entry[dir].map(f => makeFrame(entry.base, f));
+    });
+    return o;
+  }
+
+  const animsBySprite = {};
+  const LOCKED_SPRITES = [];
+  SPRITE_ROSTER.forEach((entry) => {
+    animsBySprite[entry.key] = buildAnims(entry);
+    if (entry.locked) LOCKED_SPRITES.push(entry.key);
+  });
+
+  const charOptionsEl = document.getElementById('charOptions');
+  SPRITE_ROSTER.forEach((entry) => {
+    const card = document.createElement('div');
+    card.className = 'charOption';
+    card.dataset.sprite = entry.key;
+    const previewSrc = entry.base && entry.down[0] ? entry.base + entry.down[0] : '';
+    card.innerHTML = '<div class="thumbWrap"><img src="' + previewSrc + '" alt="' + entry.name + '"></div><span>' + entry.name + '</span>';
+    charOptionsEl.appendChild(card);
+  });
+
+  let mySprite = 'a';
+  let walkIndex = 0, walkAcc = 0, facing = 'down', turning = false;
+  const WALK_FRAME_MS = 1000 / 7;
+  let stepping = false;
+  let stepFromX = 0, stepFromY = 0, stepToX = 0, stepToY = 0, stepProgress = 0;
+
+  const SPRITE_X = Math.floor((W - WORLD_TILE) / 2);
+  const SPRITE_Y = Math.floor((H - WORLD_TILE) / 2);
+  const SPRITE_FEET_PAD = 3;
+  const SPRITE_ART_DX = -Math.round((SPRITE_W - WORLD_TILE) / 2);
+  const SPRITE_ART_DY = WORLD_TILE - SPRITE_H + SPRITE_FEET_PAD;
+
+  // ---------- Multiplayer (Firebase) ----------
+  const firebaseConfig = {
+    apiKey: "AIzaSyBz6q7Cs2lVNn5lf2bSKKLVfI7Pb6HF3Dg",
+    authDomain: "gba-prototype.firebaseapp.com",
+    databaseURL: "https://gba-prototype-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "gba-prototype",
+    storageBucket: "gba-prototype.firebasestorage.app",
+    messagingSenderId: "1052035539915",
+    appId: "1:1052035539915:web:3e38c49b96daa2eb374c4e"
+  };
+
+  let playerId = null;
+  let playerRef = null, playersRef = null;
+  const remotePlayers = {};
+  const STALE_MS = 8000;
+
+  function initFirebase(){
+    const statusEl = document.getElementById('charSelectStatus');
+    try {
+      if (!firebaseConfig.apiKey || !firebaseConfig.databaseURL) {
+        statusEl.textContent = 'Multiplayer not configured (single player only)';
+        return;
+      }
+      firebase.initializeApp(firebaseConfig);
+      const db = firebase.database();
+
+      statusEl.textContent = 'Signing in…';
+      firebase.auth().onAuthStateChanged((user) => {
+        if (!user) return;
+        playerId = user.uid;
+        loadSavedCheckpoint(db, playerId);
+        initFirebaseItems(db);
+        playersRef = db.ref('players');
+        playerRef = db.ref('players/' + playerId);
+        playerRef.onDisconnect().remove();
+
+        playersRef.on('value', (snap) => {
+          const val = snap.val() || {};
+          for (const id in val) {
+            if (id === playerId) continue;
+            remotePlayers[id] = val[id];
+          }
+          for (const id in remotePlayers) {
+            if (!val[id]) delete remotePlayers[id];
+          }
+          updateChatCleanupOwnership(Object.keys(val).length);
+        });
+
+        initChat(db);
+        statusEl.textContent = 'Connected';
+      });
+      firebase.auth().signInAnonymously().catch((err) => {
+        console.error('Anonymous sign-in failed:', err);
+        statusEl.textContent = 'Offline (multiplayer unavailable)';
+      });
+    } catch (err) {
+      console.error('Firebase init failed:', err);
+      statusEl.textContent = 'Offline (multiplayer unavailable)';
+    }
+  }
+  initFirebase();
+
+  // ---------- Chat ----------
+  const chatPanel = document.getElementById('chatPanel');
+  const chatLog = document.getElementById('chatLog');
+  const chatInput = document.getElementById('chatInput');
+  const PLAYER_COLORS = ['#ff6b6b', '#6bc7ff', '#7CFC9E', '#ffd166', '#c792ea', '#ff9f6b', '#6bffef', '#ff6bd0'];
+  let chatRef = null;
+  let ownsChatCleanup = false;
+  let manualChatOpen = false;
+  let autoShowActive = false;
+  let autoShowTimer = null;
+  const chatAttachedAt = Date.now();
+
+  function colorForUid(uid){
+    let h = 0;
+    for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) >>> 0;
+    return PLAYER_COLORS[h % PLAYER_COLORS.length];
+  }
+  function nameForUid(uid){ return 'P-' + uid.slice(-4).toUpperCase(); }
+
+  function renderChat(val){
+    chatLog.innerHTML = '';
+    Object.values(val || {}).sort((a, b) => (a.t || 0) - (b.t || 0)).forEach((m) => {
+      const row = document.createElement('div');
+      row.className = 'msg';
+      const who = document.createElement('span');
+      who.className = 'who';
+      who.style.color = colorForUid(m.uid || '');
+      who.textContent = (m.uid ? nameForUid(m.uid) : '???') + ':';
+      row.appendChild(who);
+      row.appendChild(document.createTextNode(' ' + (m.text || '')));
+      chatLog.appendChild(row);
+    });
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  function updateChatVisibility(){
+    chatPanel.classList.toggle('show', manualChatOpen || autoShowActive);
+  }
+
+  function bumpAutoShow(){
+    autoShowActive = true;
+    updateChatVisibility();
+    clearTimeout(autoShowTimer);
+    autoShowTimer = setTimeout(() => {
+      autoShowActive = false;
+      autoShowTimer = null;
+      updateChatVisibility();
+    }, 5000);
+  }
+
+  function initChat(db){
+    chatRef = db.ref('chat');
+    chatRef.limitToLast(50).on('value', (snap) => renderChat(snap.val()));
+    chatRef.limitToLast(50).on('child_added', (snap) => {
+      const m = snap.val();
+      if (m && m.t && m.t > chatAttachedAt) bumpAutoShow();
+    });
+  }
+
+  function updateChatCleanupOwnership(playerCount){
+    if (!chatRef) return;
+    const shouldOwn = playerCount <= 1;
+    if (shouldOwn && !ownsChatCleanup) {
+      ownsChatCleanup = true;
+      chatRef.onDisconnect().remove();
+    } else if (!shouldOwn && ownsChatCleanup) {
+      ownsChatCleanup = false;
+      chatRef.onDisconnect().cancel();
+    }
+  }
+
+  function sendChatMessage(){
+    const text = chatInput.value.trim();
+    if (!text || !chatRef || !playerId) return;
+    chatInput.value = '';
+    chatRef.push({ uid: playerId, text: text.slice(0, 200), t: firebase.database.ServerValue.TIMESTAMP });
+  }
+
+  document.getElementById('btnChatToggle').addEventListener('click', () => {
+    manualChatOpen = !manualChatOpen;
+    updateChatVisibility();
+  });
+  document.getElementById('chatSendBtn').addEventListener('click', sendChatMessage);
+  chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChatMessage(); });
+
+  function startNetworkSync(){
+    setInterval(() => {
+      if (!playerRef) return;
+      playerRef.set({
+        x: camX, y: camY,
+        facing: facing, walkIndex: walkIndex,
+        sprite: mySprite,
+        t: Date.now()
+      });
+    }, 100);
+  }
+
+  // ---------- Sprite Unlock Codes ----------
+  const MAX_UNLOCK_ATTEMPTS = 20;
+  const unlockedSprites = new Set();
+
+  async function sha256Hex(str){
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function attemptUnlock(spriteKey, code){
+    if (!playerId) return { ok: false, msg: 'Still connecting… try again in a sec' };
+    const db = firebase.database();
+    const attemptsRef = db.ref('unlockAttempts/' + playerId + '/' + spriteKey);
+    try {
+      const snap = await attemptsRef.once('value');
+      const nextCount = (snap.val() || 0) + 1;
+      if (nextCount > MAX_UNLOCK_ATTEMPTS) {
+        return { ok: false, msg: 'Too many attempts on this device.' };
+      }
+      await attemptsRef.set(nextCount);
+    } catch (err) {
+      return { ok: false, msg: 'Too many attempts on this device.' };
+    }
+    const hash = await sha256Hex(code);
+    try {
+      await db.ref('unlockCheck/' + playerId + '/' + spriteKey).set(hash);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, msg: 'Incorrect code' };
+    }
+  }
+
+  // ---------- Character Select ----------
+  const codeGate = document.getElementById('codeGate');
+  const codeGateInput = document.getElementById('codeGateInput');
+  const codeGateMsg = document.getElementById('codeGateMsg');
+  const codeGateLabel = document.getElementById('codeGateLabel');
+  let pendingLockedSprite = null;
+
+  function selectSprite(el){
+    document.querySelectorAll('.charOption').forEach(o => o.classList.remove('selected'));
+    el.classList.add('selected');
+    mySprite = el.dataset.sprite;
+    document.getElementById('btnStartGame').disabled = false;
+    codeGate.classList.remove('show');
+  }
+
+  document.querySelectorAll('.charOption').forEach((el) => {
+    if (LOCKED_SPRITES.includes(el.dataset.sprite)) el.classList.add('locked');
+    el.addEventListener('click', () => {
+      const key = el.dataset.sprite;
+      if (LOCKED_SPRITES.includes(key) && !unlockedSprites.has(key)) {
+        pendingLockedSprite = key;
+        codeGateLabel.textContent = 'Enter code for Sprite ' + key.toUpperCase();
+        codeGateMsg.textContent = '';
+        codeGateInput.value = '';
+        codeGate.classList.add('show');
+        codeGateInput.focus();
+        return;
+      }
+      selectSprite(el);
+    });
+  });
+
+  document.getElementById('codeGateSubmit').addEventListener('click', async () => {
+    if (!pendingLockedSprite) return;
+    const code = codeGateInput.value.trim();
+    if (!code) return;
+    codeGateMsg.style.color = '#eafbe6';
+    codeGateMsg.textContent = 'Checking…';
+    const result = await attemptUnlock(pendingLockedSprite, code);
+    if (result.ok) {
+      unlockedSprites.add(pendingLockedSprite);
+      const el = document.querySelector('.charOption[data-sprite="' + pendingLockedSprite + '"]');
+      el.classList.add('unlocked');
+      codeGate.classList.remove('show');
+      selectSprite(el);
+    } else {
+      codeGateMsg.style.color = '#ff8b8b';
+      codeGateMsg.textContent = result.msg;
+    }
+  });
+
+  document.getElementById('btnStartGame').addEventListener('click', () => {
+    document.getElementById('charSelect').style.display = 'none';
+    startNetworkSync();
+    requestAnimationFrame(loop);
+  });
+
+  // =====================================================================
+  //  GBA MOVEMENT & COLLISION
+  // =====================================================================
+  function update(){
+    if (entering){
+      updateEnterSequence();
+      return;
+    }
+
+    const moveDir = keys[facing] ? facing : (keys.up ? 'up' : (keys.down ? 'down' : (keys.left ? 'left' : (keys.right ? 'right' : null))));
+
+    if (stepping){
+      stepProgress += SPEED / STEP_SIZE;
+      walkAcc += 1000 / 60;
+      if (walkAcc >= WALK_FRAME_MS){
+        walkAcc -= WALK_FRAME_MS;
+        walkIndex = (walkIndex + 1) % 4;
+      }
+      if (stepProgress >= 1){
+        camX = stepToX; camY = stepToY;
+        stepping = false; stepProgress = 0;
+        const enterBlock = findEnterBlockUnderPlayer();
+        if (enterBlock){
+          entering = true; enterPhase = 'out'; enterFadeAcc = 0; enterAlpha = 0;
+          enterReturnX = stepFromX; enterReturnY = stepFromY;
+        }
+      } else {
+        camX = stepFromX + (stepToX - stepFromX) * stepProgress;
+        camY = stepFromY + (stepToY - stepFromY) * stepProgress;
+      }
+      return;
+    }
+
+    if (!moveDir){
+      walkIndex = 0; walkAcc = 0; turning = false;
+      return;
+    }
+
+    if (facing !== moveDir){
+      facing = moveDir; turning = true; walkIndex = 0; walkAcc = 0;
+      return;
+    }
+    if (turning){
+      turning = false;
+      return;
+    }
+
+    let tx = camX, ty = camY;
+    if (facing === 'left') tx -= STEP_SIZE;
+    if (facing === 'right') tx += STEP_SIZE;
+    if (facing === 'up') ty -= STEP_SIZE;
+    if (facing === 'down') ty += STEP_SIZE;
+
+    // Movement blocked if solid player, solid building, or active uncollected item
+    if (!collidesWithOthers(camX, camY, tx, ty) && !collidesWithWorldAssets(tx, ty) && !collidesWithCollectibles(tx, ty)){
+      stepFromX = camX; stepFromY = camY;
+      stepToX = tx; stepToY = ty;
+      stepProgress = 0;
+      stepping = true;
+    } else {
+      walkIndex = 0; walkAcc = 0;
+    }
+  }
+
+  function drawSpriteAt(spriteKey, dir, frameIdx, px, py){
+    const set = animsBySprite[spriteKey] || animsBySprite.a;
+    const dirAnim = set[dir] || set.down;
+    const frame = dirAnim[frameIdx] || dirAnim[0];
+    if (frame && frame.complete && frame.naturalWidth > 0){
+      ctx.drawImage(frame, px, py, SPRITE_W, SPRITE_H);
+    }
+  }
+
+  function draw(){
+    const startTX = Math.floor(camX / TILE) - 1;
+    const startTY = Math.floor(camY / TILE) - 1;
+    const tilesX = Math.ceil(W / TILE) + 2;
+    const tilesY = Math.ceil(H / TILE) + 2;
+    const offX = -(camX - startTX * TILE);
+    const offY = -(camY - startTY * TILE);
+
+    for (let j = 0; j < tilesY; j++){
+      const ty = startTY + j, py = Math.round(offY + j * TILE);
+      for (let i = 0; i < tilesX; i++){
+        const tx = startTX + i, px = Math.round(offX + i * TILE);
+        const c = tileColor(tx, ty);
+        ctx.fillStyle = 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+        ctx.fillRect(px, py, TILE, TILE);
+      }
+    }
+
+    drawCheckpoints();
+    drawCollectibles();
+    ludoDrawSpot();
+
+    const drawList = [];
+    for (const b of WORLD_BLOCKS){
+      if (b.conflicted) continue;
+      drawList.push({ k: b.overPlayer ? 1e9 : b.y, fn: () => drawWorldBlock(b) });
+    }
+    const now = Date.now();
+    for (const id in remotePlayers){
+      const p = remotePlayers[id];
+      if (!p || now - (p.t || 0) > STALE_MS) continue;
+      const px = Math.round(SPRITE_X + (p.x - camX)) + SPRITE_ART_DX;
+      const py = Math.round(SPRITE_Y + (p.y - camY)) + SPRITE_ART_DY;
+      if (px > -SPRITE_W && px < W && py > -SPRITE_H && py < H){
+        drawList.push({ k: p.y + 0.5, fn: () => drawSpriteAt(p.sprite || 'a', p.facing || 'down', p.walkIndex || 0, px, py) });
+      }
+    }
+    drawList.push({ k: camY + 0.51, fn: () => drawSpriteAt(mySprite, facing, walkIndex, SPRITE_X + SPRITE_ART_DX, SPRITE_Y + SPRITE_ART_DY) });
+    drawList.sort((a, b) => a.k - b.k);
+    for (const item of drawList) item.fn();
+
+    ludoDrawPrompt();
+    drawEnterOverlay();
+
+    document.getElementById('coords').textContent = 'x:' + Math.round(camX) + ' y:' + Math.round(camY);
+  }
+
+  // =====================================================================
+  //  LUDO MINIGAME
+  // =====================================================================
+  const LUDO_TILES = [{ x: -48, y: 0 }, { x: -32, y: 0 }];
+  const LUDO_TABLE = 'table1';
+  const LUDO_ROLL_MS = 550;
+  const LUDO_AUTO_MS = 650;
+
+  const LUDO_PATH = (() => {
+    const P = [];
+    for (let c = 0; c <= 5; c++) P.push([c, 6]);
+    for (let r = 5; r >= 0; r--) P.push([6, r]);
+    P.push([7, 0], [8, 0]);
+    for (let r = 1; r <= 5; r++) P.push([8, r]);
+    for (let c = 9; c <= 14; c++) P.push([c, 6]);
+    P.push([14, 7], [14, 8]);
+    for (let c = 13; c >= 9; c--) P.push([c, 8]);
+    for (let r = 9; r <= 14; r++) P.push([8, r]);
+    P.push([7, 14], [6, 14]);
+    for (let r = 13; r >= 9; r--) P.push([6, r]);
+    for (let c = 5; c >= 0; c--) P.push([c, 8]);
+    P.push([0, 7]);
+    return P;
+  })();
+  const LUDO_START = [1, 27];
+  const LUDO_ALL_STARTS = [1, 14, 27, 40];
+  const LUDO_STARS = [9, 22, 35, 48];
+  const LUDO_SAFE = new Set([1, 9, 14, 22, 27, 35, 40, 48]);
+  const LUDO_HOMECOL = [
+    [[1, 7], [2, 7], [3, 7], [4, 7], [5, 7]],
+    [[13, 7], [12, 7], [11, 7], [10, 7], [9, 7]]
+  ];
+  const LUDO_HOMEPOS = [[6, 7], [8, 7]];
+  const LUDO_BASE = [
+    [[1, 1], [4, 1], [1, 4], [4, 4]],
+    [[10, 10], [13, 10], [10, 13], [13, 13]]
+  ];
+  const LUDO_COL = ['#e0463b', '#3ba54a', '#f2c84b', '#3b7be0'];
+  const LUDO_SEAT_COL = [LUDO_COL[0], LUDO_COL[2]];
+  const LUDO_SHORT = ['RED', 'YEL'];
+
+  const L = {
+    open: false, joining: false, ref: null, cb: null, seat: 0,
+    data: null, g: null, hadOpp: false, creating: false,
+    sel: 0, rollUntil: 0, rollTimer: null, autoTimer: null, confirm: false,
+    notice: '', noticeUntil: 0, toast: '', toastUntil: 0
+  };
+  function ludoSay(t){ L.notice = t; L.noticeUntil = Date.now() + 3500; }
+  function ludoToast(t){ L.toast = t; L.toastUntil = Date.now() + 2500; }
+
+  function ludoNewGame(){
+    return { turn: Math.random() < 0.5 ? 0 : 1, phase: 'roll', dice: 0,
+             tk: [[-1, -1, -1, -1], [-1, -1, -1, -1]], n: 0, win: -1, msg: '' };
+  }
+  function ludoPack(g){
+    return { turn: g.turn, phase: g.phase, dice: g.dice, tk: g.tk.map((a) => a.join(',')).join(';'),
+             n: g.n, win: g.win, msg: g.msg || '' };
+  }
+  function ludoParse(raw){
+    if (!raw || typeof raw.tk !== 'string') return null;
+    const tk = raw.tk.split(';').map((s) => s.split(',').map(Number));
+    if (tk.length !== 2 || tk.some((a) => a.length !== 4 || a.some(Number.isNaN))) return null;
+    return { turn: raw.turn | 0, phase: raw.phase || 'roll', dice: raw.dice | 0, tk,
+             n: raw.n | 0, win: raw.win == null ? -1 : raw.win | 0, msg: raw.msg || '' };
+  }
+
+  function ludoLegal(tk, seat, d){
+    const out = [];
+    for (let i = 0; i < 4; i++){
+      const p = tk[seat][i];
+      if (p === -1){ if (d === 6) out.push(i); }
+      else if (p < 56 && p + d <= 56) out.push(i);
+    }
+    return out;
+  }
+  function ludoApply(g, seat, i){
+    const t = g.tk.map((a) => a.slice());
+    const d = g.dice;
+    const to = t[seat][i] === -1 ? 0 : t[seat][i] + d;
+    t[seat][i] = to;
+    let note = '';
+    if (to <= 50){
+      const cell = (LUDO_START[seat] + to) % 52;
+      if (!LUDO_SAFE.has(cell)){
+        const opp = 1 - seat;
+        for (let j = 0; j < 4; j++){
+          const q = t[opp][j];
+          if (q >= 0 && q <= 50 && (LUDO_START[opp] + q) % 52 === cell){ t[opp][j] = -1; note = 'CAPTURE!'; }
+        }
+      }
+    } else if (to === 56){ note = 'HOME!'; }
+    const won = t[seat].every((p) => p === 56);
+    const bonus = d === 6 && !won;
+    return { turn: (won || bonus) ? seat : 1 - seat, phase: won ? 'over' : 'roll', dice: d, tk: t,
+             n: g.n + 1, win: won ? seat : -1, msg: won ? '' : (note || (bonus ? 'ROLL AGAIN' : '')) };
+  }
+  function ludoCellOf(seat, p, i){
+    if (p < 0) return LUDO_BASE[seat][i];
+    if (p <= 50) return LUDO_PATH[(LUDO_START[seat] + p) % 52];
+    if (p <= 55) return LUDO_HOMECOL[seat][p - 51];
+    return LUDO_HOMEPOS[seat];
+  }
+
+  function ludoWrite(g){
+    L.ref.child('game').set(ludoPack(g)).catch(() => ludoSay('SYNC ERROR'));
+  }
+  function ludoStop(){
+    L.open = false; L.g = null; L.data = null; L.confirm = false; L.hadOpp = false; L.creating = false;
+    clearTimeout(L.rollTimer); L.rollTimer = null;
+    clearTimeout(L.autoTimer); L.autoTimer = null;
+  }
+  function ludoClose(msg){
+    if (L.ref && L.cb) L.ref.off('value', L.cb);
+    ludoStop();
+    if (msg) ludoToast(msg);
+  }
+  function ludoLeave(){
+    if (!L.open) return;
+    const ref = L.ref, key = 's' + L.seat;
+    ludoStop();
+    ref.off('value', L.cb);
+    try { ref.child('seats/' + key).onDisconnect().cancel(); } catch (e) {}
+    ref.transaction((cur) => {
+      if (!cur) return cur;
+      const seats = Object.assign({}, cur.seats || {});
+      if (seats[key] === playerId) delete seats[key];
+      if (!seats.s0 && !seats.s1) return null;
+      return { seats };
+    });
+  }
+  function ludoOnData(snap){
+    if (!L.open) return;
+    L.data = snap.val() || {};
+    const seats = L.data.seats || {};
+    if (seats['s' + L.seat] !== playerId){ ludoClose('LUDO: CONNECTION LOST'); return; }
+    const hasOpp = !!seats['s' + (1 - L.seat)];
+    if (hasOpp && !L.hadOpp) ludoSay('PLAYER JOINED!');
+    if (!hasOpp && L.hadOpp) ludoSay('OPPONENT LEFT');
+    L.hadOpp = hasOpp;
+    const g = ludoParse(L.data.game);
+    if (!hasOpp){
+      L.g = null;
+      if (L.data.game) L.ref.child('game').remove();
+    } else {
+      if (g && (!L.g || g.n !== L.g.n)) L.sel = 0;
+      L.g = g;
+      if (!g && L.seat === 0 && !L.creating){
+        L.creating = true;
+        L.ref.child('game').transaction((cur) => cur || ludoPack(ludoNewGame()), () => { L.creating = false; }, false);
+      }
+    }
+    if (!L.g || L.g.phase === 'over') L.confirm = false;
+  }
+
+  function ludoOnSpot(){
+    return !stepping && !entering && LUDO_TILES.some((t) => camX === t.x && camY === t.y);
+  }
+  function ludoTryEnter(){
+    if (document.getElementById('charSelect').style.display !== 'none') return;
+    if (L.open || L.joining || !ludoOnSpot()) return;
+    if (!playerId || typeof firebase === 'undefined' || !firebase.apps || !firebase.apps.length){
+      ludoToast('LUDO NEEDS MULTIPLAYER'); return;
+    }
+    L.joining = true;
+    const ref = firebase.database().ref('ludo/' + LUDO_TABLE);
+    ref.child('seats').transaction((cur) => {
+      cur = cur || {};
+      if (cur.s0 === playerId || cur.s1 === playerId) return cur;
+      if (!cur.s0){ cur.s0 = playerId; return cur; }
+      if (!cur.s1){ cur.s1 = playerId; return cur; }
+      return undefined;
+    }, (err, committed, snap) => {
+      L.joining = false;
+      if (err){ ludoToast('LUDO BLOCKED: ADD DB RULE'); return; }
+      if (!committed){ ludoToast('TABLE IS FULL'); return; }
+      const seats = snap.val() || {};
+      L.ref = ref; L.seat = seats.s0 === playerId ? 0 : 1;
+      L.g = null; L.data = null; L.hadOpp = false; L.creating = false; L.confirm = false; L.sel = 0;
+      L.notice = ''; L.noticeUntil = 0;
+      L.open = true;
+      ref.child('seats/s' + L.seat).onDisconnect().remove();
+      L.cb = ref.on('value', ludoOnData, () => ludoClose('LUDO BLOCKED: ADD DB RULE'));
+    }, false);
+  }
+
+  function ludoRoll(){
+    const g = L.g;
+    if (!g || g.phase !== 'roll' || g.turn !== L.seat || L.rollTimer) return;
+    const n = g.n;
+    L.rollUntil = Date.now() + LUDO_ROLL_MS;
+    L.rollTimer = setTimeout(() => {
+      L.rollTimer = null;
+      const cur = L.g;
+      if (!L.open || !cur || cur.n !== n || cur.phase !== 'roll' || cur.turn !== L.seat) return;
+      const d = 1 + Math.floor(Math.random() * 6);
+      const legal = ludoLegal(cur.tk, L.seat, d);
+      const ng = legal.length
+        ? { turn: cur.turn, phase: 'move', dice: d, tk: cur.tk, n: n + 1, win: -1, msg: '' }
+        : { turn: 1 - cur.turn, phase: 'roll', dice: d, tk: cur.tk, n: n + 1, win: -1, msg: 'NO MOVE' };
+      L.g = ng; L.sel = 0;
+      ludoWrite(ng);
+    }, LUDO_ROLL_MS);
+  }
+  function ludoCommit(i){
+    const g = L.g;
+    if (!g || g.phase !== 'move' || g.turn !== L.seat) return;
+    clearTimeout(L.autoTimer); L.autoTimer = null;
+    const ng = ludoApply(g, L.seat, i);
+    L.g = ng; L.sel = 0;
+    ludoWrite(ng);
+  }
+  function ludoTick(){
+    const g = L.g;
+    if (!g || L.confirm || g.phase !== 'move' || g.turn !== L.seat || L.autoTimer) return;
+    const legal = ludoLegal(g.tk, L.seat, g.dice);
+    if (legal.length !== 1) return;
+    const n = g.n;
+    L.autoTimer = setTimeout(() => {
+      L.autoTimer = null;
+      if (L.open && L.g && L.g.n === n && L.g.phase === 'move' && L.g.turn === L.seat && !L.confirm) ludoCommit(legal[0]);
+    }, LUDO_AUTO_MS);
+  }
+
+  function ludoInputA(){
+    if (!L.open){ ludoTryEnter(); return; }
+    if (L.confirm){ ludoLeave(); return; }
+    const g = L.g;
+    if (!g) return;
+    if (g.phase === 'over'){
+      L.ref.child('game').transaction((cur) => (cur && cur.phase === 'over') ? ludoPack(ludoNewGame()) : cur, null, false);
+      return;
+    }
+    if (g.turn !== L.seat) return;
+    if (g.phase === 'roll') ludoRoll();
+    else if (g.phase === 'move'){
+      const legal = ludoLegal(g.tk, L.seat, g.dice);
+      if (legal.length) ludoCommit(legal[L.sel % legal.length]);
+    }
+  }
+  function ludoInputB(){
+    if (!L.open) return;
+    if (L.confirm){ L.confirm = false; return; }
+    if (L.g && L.g.phase !== 'over'){ L.confirm = true; return; }
+    ludoLeave();
+  }
+  function ludoInputNav(dir){
+    const g = L.g;
+    if (!L.open || !g || g.phase !== 'move' || g.turn !== L.seat) return;
+    const legal = ludoLegal(g.tk, L.seat, g.dice);
+    if (legal.length > 1) L.sel = (L.sel + dir + legal.length) % legal.length;
+  }
+  function ludoTyping(){
+    const a = document.activeElement;
+    return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA');
+  }
+
+  document.getElementById('btnB').addEventListener('pointerdown', () => ludoInputB());
+  document.getElementById('left').addEventListener('pointerdown', () => ludoInputNav(-1));
+  document.getElementById('up').addEventListener('pointerdown', () => ludoInputNav(-1));
+  document.getElementById('right').addEventListener('pointerdown', () => ludoInputNav(1));
+  document.getElementById('down').addEventListener('pointerdown', () => ludoInputNav(1));
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat || ludoTyping()) return;
+    if (e.key === 'b' || e.key === 'x' || e.key === 'Escape') ludoInputB();
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ludoInputNav(-1);
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') ludoInputNav(1);
+  });
+
+  function ludoDrawSpot(){
+    for (const t of LUDO_TILES){
+      const px = Math.round(SPRITE_X + (t.x - camX));
+      const py = Math.round(SPRITE_Y + (t.y - camY));
+      if (px <= -16 || px >= W || py <= -16 || py >= H) continue;
+      ctx.fillStyle = '#2a2a2a'; ctx.fillRect(px, py, 16, 16);
+      ctx.fillStyle = '#f4f1e6'; ctx.fillRect(px + 1, py + 1, 14, 14);
+      ctx.fillStyle = LUDO_COL[0]; ctx.fillRect(px + 2, py + 2, 5, 5);
+      ctx.fillStyle = LUDO_COL[1]; ctx.fillRect(px + 9, py + 2, 5, 5);
+      ctx.fillStyle = LUDO_COL[3]; ctx.fillRect(px + 2, py + 9, 5, 5);
+      ctx.fillStyle = LUDO_COL[2]; ctx.fillRect(px + 9, py + 9, 5, 5);
+      ctx.fillStyle = '#2a2a2a'; ctx.fillRect(px + 6, py + 6, 4, 4);
+    }
+  }
+  function ludoDrawPrompt(){
+    let txt = '';
+    if (Date.now() < L.toastUntil) txt = L.toast;
+    else if (ludoOnSpot() && !L.open) txt = 'A: PLAY LUDO';
+    if (!txt) return;
+    ctx.font = 'bold 8px monospace'; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    const w = Math.ceil(ctx.measureText(txt).width) + 12;
+    ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(Math.round((W - w) / 2), H - 18, w, 12);
+    ctx.fillStyle = '#fff'; ctx.fillText(txt, W / 2, H - 12);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  }
+
+  function ludoFrame(){
+    if (!L.open) return false;
+    ludoTick();
+    ludoDraw();
+    return true;
+  }
+  function ludoDraw(){
+    const bx = 4, by = 5, cs = 10;
+    const cell = (c, r, col, a) => {
+      ctx.globalAlpha = a == null ? 1 : a; ctx.fillStyle = col;
+      ctx.fillRect(bx + c * cs, by + r * cs, cs, cs); ctx.globalAlpha = 1;
+    };
+    const used = (colIdx) => colIdx === 0 || colIdx === 2;
+    ctx.fillStyle = '#16241c'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#f4f1e6'; ctx.fillRect(bx, by, cs * 15, cs * 15);
+
+    [[0, 0], [9, 0], [9, 9], [0, 9]].forEach(([c, r], k) => {
+      ctx.globalAlpha = used(k) ? 1 : 0.35; ctx.fillStyle = LUDO_COL[k];
+      ctx.fillRect(bx + c * cs, by + r * cs, cs * 6, cs * 6); ctx.globalAlpha = 1;
+      ctx.fillStyle = '#f4f1e6'; ctx.fillRect(bx + (c + 1) * cs, by + (r + 1) * cs, cs * 4, cs * 4);
+    });
+
+    LUDO_PATH.forEach(([c, r], i) => {
+      const si = LUDO_ALL_STARTS.indexOf(i);
+      cell(c, r, si >= 0 ? LUDO_COL[si] : '#fbfaf3', si >= 0 && !used(si) ? 0.35 : 1);
+      ctx.strokeStyle = '#7a7a70'; ctx.lineWidth = 1;
+      ctx.strokeRect(bx + c * cs + 0.5, by + r * cs + 0.5, cs - 1, cs - 1);
+      if (LUDO_STARS.indexOf(i) >= 0){
+        const x = bx + c * cs + cs / 2, y = by + r * cs + cs / 2;
+        ctx.fillStyle = '#3a3a3a'; ctx.beginPath();
+        ctx.moveTo(x, y - 3); ctx.lineTo(x + 3, y); ctx.lineTo(x, y + 3); ctx.lineTo(x - 3, y); ctx.closePath(); ctx.fill();
+      }
+    });
+
+    [[LUDO_HOMECOL[0], 0], [[[7, 1], [7, 2], [7, 3], [7, 4], [7, 5]], 1],
+     [LUDO_HOMECOL[1], 2], [[[7, 9], [7, 10], [7, 11], [7, 12], [7, 13]], 3]].forEach(([cells, k]) => {
+      cells.forEach(([c, r]) => {
+        cell(c, r, LUDO_COL[k], used(k) ? 1 : 0.35);
+        ctx.strokeStyle = '#7a7a70'; ctx.strokeRect(bx + c * cs + 0.5, by + r * cs + 0.5, cs - 1, cs - 1);
+      });
+    });
+
+    const x0 = bx + 6 * cs, y0 = by + 6 * cs, x1 = bx + 9 * cs, y1 = by + 9 * cs, mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+    [[x0, y0, x0, y1, LUDO_COL[0], 0], [x0, y0, x1, y0, LUDO_COL[1], 1],
+     [x1, y0, x1, y1, LUDO_COL[2], 2], [x0, y1, x1, y1, LUDO_COL[3], 3]].forEach(([ax, ay, cx2, cy2, col, k]) => {
+      ctx.globalAlpha = used(k) ? 1 : 0.35; ctx.fillStyle = col;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(cx2, cy2); ctx.lineTo(mx, my); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+
+    const g = L.g;
+    const seatsHere = [true, true];
+    const seatsData = (L.data && L.data.seats) || {};
+    seatsHere[0] = !!seatsData.s0; seatsHere[1] = !!seatsData.s1;
+    const tk = g ? g.tk : [[-1, -1, -1, -1], [-1, -1, -1, -1]];
+    const myLegal = (g && g.phase === 'move' && g.turn === L.seat) ? ludoLegal(g.tk, L.seat, g.dice) : [];
+    const picked = myLegal.length ? myLegal[L.sel % myLegal.length] : -1;
+    const stackCount = {};
+    const items = [];
+    for (let s = 0; s < 2; s++){
+      if (!seatsHere[s]) continue;
+      for (let i = 0; i < 4; i++){
+        const [c, r] = ludoCellOf(s, tk[s][i], i);
+        const key = c + ',' + r;
+        stackCount[key] = (stackCount[key] || 0) + 1;
+        items.push({ s, i, c, r, key, idx: stackCount[key] - 1 });
+      }
+    }
+    const blink = Math.floor(Date.now() / 250) % 2 === 0;
+    for (const it of items){
+      const total = stackCount[it.key];
+      const cx = bx + it.c * cs + cs / 2 + (it.idx - (total - 1) / 2) * 3;
+      const cy = by + it.r * cs + cs / 2;
+      if (tk[it.s][it.i] < 0){
+        ctx.strokeStyle = LUDO_SEAT_COL[it.s]; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(bx + it.c * cs + cs / 2, cy, 4.6, 0, 6.2832); ctx.stroke();
+      }
+      ctx.fillStyle = LUDO_SEAT_COL[it.s];
+      ctx.beginPath(); ctx.arc(cx, cy, 3.6, 0, 6.2832); ctx.fill();
+      ctx.strokeStyle = '#1b1b1b'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fillRect(Math.round(cx - 1.5), Math.round(cy - 2), 1, 1);
+      if (it.s === L.seat && myLegal.indexOf(it.i) >= 0){
+        if (it.i === picked){ ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, 5.4, 0, 6.2832); ctx.stroke(); }
+        else if (blink){ ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, 5.2, 0, 6.2832); ctx.stroke(); }
+      }
+    }
+
+    const px = 160;
+    ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+    ctx.fillStyle = '#e8f3ea'; ctx.font = 'bold 9px monospace'; ctx.fillText('LUDO', px, 5);
+    ctx.font = 'bold 8px monospace';
+    for (let s = 0; s < 2; s++){
+      const y = 17 + s * 10;
+      ctx.fillStyle = LUDO_SEAT_COL[s]; ctx.fillRect(px + 8, y + 1, 6, 6);
+      const turnHere = g && g.phase !== 'over' && g.turn === s;
+      ctx.fillStyle = seatsHere[s] ? '#e8f3ea' : '#7d8f83';
+      ctx.fillText((turnHere ? '>' : ' ') + '', px, y);
+      ctx.fillText(LUDO_SHORT[s] + ' ' + (s === L.seat ? 'YOU' : (seatsHere[s] ? 'OPP' : '---')), px + 17, y);
+    }
+
+    const dxp = 178, dyp = 44, ds = 26;
+    const rolling = Date.now() < L.rollUntil;
+    const face = rolling ? 1 + (Math.floor(Date.now() / 70) % 6) : (g ? g.dice : 0);
+    ctx.fillStyle = '#1b1b1b'; ctx.fillRect(dxp - 1, dyp - 1, ds + 2, ds + 2);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(dxp, dyp, ds, ds);
+    const pips = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] }[face] || [];
+    ctx.fillStyle = '#1b1b1b';
+    pips.forEach((p) => { ctx.fillRect(dxp + 4 + (p % 3) * 7, dyp + 4 + Math.floor(p / 3) * 7, 4, 4); });
+    if (!face){ ctx.textAlign = 'center'; ctx.fillText('?', dxp + ds / 2, dyp + 9); ctx.textAlign = 'left'; }
+
+    let lines = [], accent = '';
+    const myTurn = g && g.turn === L.seat;
+    if (!g && !L.hadOpp){ lines = ['WAITING FOR', 'ANOTHER', 'PLAYER...']; }
+    else if (!g){ lines = ['STARTING...']; }
+    else if (g.phase === 'over'){ lines = [g.win === L.seat ? 'YOU WIN!' : 'YOU LOSE', 'A: REMATCH']; }
+    else if (g.phase === 'roll'){ lines = myTurn ? ['YOUR TURN', 'A: ROLL'] : ['OPPONENT\'S', 'TURN...']; }
+    else { lines = myTurn ? (myLegal.length > 1 ? ['PICK TOKEN', '< > THEN A'] : ['MOVING...']) : ['OPPONENT', 'MOVING...']; }
+    if (g && g.msg) accent = g.msg;
+    if (Date.now() < L.noticeUntil) accent = L.notice;
+    ctx.fillStyle = '#e8f3ea';
+    lines.forEach((t, k) => ctx.fillText(t, px, 78 + k * 10));
+    if (accent){ ctx.fillStyle = '#ffd166'; ctx.fillText(accent, px, 118); }
+    ctx.fillStyle = '#9db5a4'; ctx.fillText('B: LEAVE', px, 146);
+
+    if (L.confirm){
+      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#f4f1e6'; ctx.fillRect(36, 52, 168, 58);
+      ctx.strokeStyle = '#1b1b1b'; ctx.lineWidth = 2; ctx.strokeRect(37, 53, 166, 56);
+      ctx.fillStyle = '#1b1b1b'; ctx.textAlign = 'center';
+      ctx.fillText('LEAVE THE GAME?', W / 2, 60);
+      ctx.fillText('THE GAME WILL END.', W / 2, 73);
+      ctx.fillText('A: YES      B: NO', W / 2, 92);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  function loop(){
+    if (ludoFrame()) { requestAnimationFrame(loop); return; }
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+})();
+</script>
+</body>
+</html>
