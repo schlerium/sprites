@@ -513,11 +513,17 @@
       // Left empty on purpose: rows/cols of 0 means it renders and blocks
       // nothing until you configure it.
       key: 'asset2',
-      name: '',
-      base: '',
-      x: 0, y: 0,
-      rows: 0, cols: 0,
-      blocks: {}
+      name: 'house1',
+      base: 'https://raw.githubusercontent.com/schlerium/sprites/main/',
+      x: 64, y: -96,
+      rows: 4, cols: 5,
+      blocks: {
+       r1c1: { file: 'house1-11.png' }, r1c2: { file: 'house1-12.png' }, r1c3: { file: 'house1-13.png' }, r1c4: { file: 'house1-14.png' }, r1c5: { file: 'house1-15.png' },
+       r2c1: { file: 'house1-21.png' }, r2c2: { file: 'house1-22.png' }, r2c3: { file: 'house1-23.png' }, r2c4: { file: 'house1-24.png' }, r2c5: { file: 'house1-25.png' },
+       r3c1: { file: 'house1-31.png' }, r3c2: { file: 'house1-32.png' }, r3c3: { file: 'house1-33.png' }, r3c4: { file: 'house1-34.png' }, r3c5: { file: 'house1-35.png' },
+       r4c1: { file: 'house1-41.png' },
+       r4c2: { file: 'house1-42.png', walkable: true, enter: true, enterFrames: [] },
+       r4c3: { file: 'house1-43.png' }, r4c4: { file: 'house1-44.png' }, r4c5: { file: 'house1-45.png' },
     }
   ];
 
