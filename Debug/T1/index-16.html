@@ -1,0 +1,2120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Infinite Grassland</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; width: 100vw; height: 100vh;
+    background: #000; overflow: hidden; touch-action: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  #viewport {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  }
+  canvas#screen {
+    width: 100%; height: 100%; object-fit: contain; aspect-ratio: 240 / 160;
+    image-rendering: pixelated; image-rendering: crisp-edges; background: #3a6b2a;
+  }
+  #overlay { position: absolute; inset: 0; pointer-events: none; user-select: none; }
+  .btn { pointer-events: auto; touch-action: none; background: rgba(255,255,255,0.14); border: 2px solid rgba(255,255,255,0.4); color: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; }
+  .btn:active, .btn.active { background: rgba(255,255,255,0.35); border-color: #fff; color: #fff; }
+
+  /* Top Bar */
+  #topBar { position: absolute; top: 10px; left: 12px; right: 12px; display: flex; justify-content: space-between; }
+  .nav-grp { display: flex; gap: 10px; }
+  .icon-btn { width: 34px; height: 34px; border-radius: 6px; font-size: 18px; }
+
+  /* Shoulders */
+  .shoulder { position: absolute; top: 25%; width: 80px; height: 40px; font-size: 22px; font-weight: bold; }
+  #btnL { left: 0; border-left: none; border-radius: 0 20px 20px 0; justify-content: flex-end; padding-right: 18px; }
+  #btnR { right: 0; border-right: none; border-radius: 20px 0 0 20px; justify-content: flex-start; padding-left: 18px; }
+
+  /* Controls (Positioned high to match your drawn overlay) */
+  #dpad {
+    position: absolute; bottom: 25vh; left: 16px;
+    width: 138px; height: 138px; display: grid;
+    grid-template-columns: 46px 46px 46px; grid-template-rows: 46px 46px 46px;
+  }
+  #up { grid-column: 2; grid-row: 1; border-radius: 8px 8px 0 0; border-bottom: none; }
+  #left { grid-column: 1; grid-row: 2; border-radius: 8px 0 0 8px; border-right: none; }
+  #dpad-center { grid-column: 2; grid-row: 2; background: rgba(255,255,255,0.14); }
+  #right { grid-column: 3; grid-row: 2; border-radius: 0 8px 8px 0; border-left: none; }
+  #down { grid-column: 2; grid-row: 3; border-radius: 0 0 8px 8px; border-top: none; }
+
+  #actionCluster { position: absolute; bottom: 25vh; right: 16px; width: 140px; height: 138px; }
+  .abtn { position: absolute; width: 60px; height: 60px; border-radius: 50%; font-size: 24px; font-weight: bold; }
+  #btnB { bottom: 0; left: 0; }
+  #btnA { top: 0; right: 0; }
+
+  #metaCluster { position: absolute; bottom: 18vh; left: 50%; transform: translateX(-50%); display: flex; gap: 24px; }
+  .pill-btn { width: 64px; height: 20px; border-radius: 10px; font-size: 9px; font-weight: bold; transform: rotate(-25deg); }
+
+  #coords { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.4); font-size: 11px; font-family: monospace; }
+
+  /* ===== CHECKPOINTS (self-contained — see matching JS block) ===== */
+  #checkpointToast {
+    position: absolute; bottom: 6%; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.75); color: #eafbe6; font-size: 11px; font-weight: 600;
+    padding: 7px 16px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.25);
+    opacity: 0; transition: opacity 0.4s; pointer-events: none; white-space: nowrap;
+  }
+  #checkpointToast.show { opacity: 1; }
+  /* ===== END CHECKPOINTS CSS ===== */
+
+  /* Global chat */
+  #chatPanel {
+    position: absolute; top: 46px; left: 6px; right: 6px; bottom: 75%;
+    display: none; flex-direction: column; pointer-events: auto;
+    background: rgba(0,0,0,0.82); border: 2px solid #b6e66b; border-radius: 6px; overflow: hidden;
+  }
+  #chatPanel.show { display: flex; }
+  #chatLog { flex: 1; overflow-y: auto; padding: 6px 8px; font-size: 10px; font-family: monospace; color: #eee; }
+  #chatLog .msg { margin-bottom: 3px; line-height: 1.3; word-break: break-word; }
+  #chatLog .who { font-weight: 700; margin-right: 4px; }
+  #chatInputRow { display: flex; border-top: 1px solid rgba(255,255,255,0.25); }
+  #chatInput { flex: 1; background: transparent; border: none; color: #eee; font-size: 11px; padding: 7px 8px; font-family: monospace; }
+  #chatInput:focus { outline: none; }
+  #chatSendBtn { background: rgba(255,255,255,0.12); border: none; color: #7CFC9E; padding: 0 14px; font-size: 11px; font-weight: 700; cursor: pointer; }
+
+  @media (orientation: landscape) {
+    .shoulder { top: 22%; }
+    #dpad { bottom: 14vh; left: 24px; }
+    #actionCluster { bottom: 14vh; right: 24px; }
+    #metaCluster { bottom: 8vh; }
+  }
+
+  /* Character select screen */
+  #charSelect {
+    position: fixed; inset: 0; z-index: 1000;
+    background: radial-gradient(circle at center, #1e3a24 0%, #0a1a0d 100%);
+    display: flex; align-items: center; justify-content: center;
+    color: #eafbe6;
+  }
+  #charSelectPanel { text-align: center; padding: 20px; max-width: 420px; width: 90%; }
+  #charSelectPanel h2 { margin: 0 0 4px; font-size: 20px; letter-spacing: 1px; }
+  #charSelectSub { margin: 0 0 20px; font-size: 12px; opacity: 0.6; }
+  #charOptions { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; margin-bottom: 20px; max-height: 46vh; overflow-y: auto; }
+  .charOption {
+    width: 130px; padding: 14px 8px; border-radius: 12px;
+    border: 2px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.06);
+    cursor: pointer; transition: border-color 0.15s, background 0.15s;
+  }
+  .charOption:hover { background: rgba(255,255,255,0.12); }
+  .charOption.selected { border-color: #7CFC9E; background: rgba(124,252,158,0.15); }
+  .charOption .thumbWrap {
+    width: 84px; height: 84px; margin: 0 auto 10px; border-radius: 8px;
+    background: rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center;
+    overflow: hidden; position: relative;
+  }
+  .charOption img { width: 42px; height: 56px; object-fit: contain; image-rendering: pixelated; }
+  .charOption span { font-size: 12px; font-weight: 600; letter-spacing: 0.5px; }
+  .charOption.locked:not(.unlocked) .thumbWrap::after {
+    content: "\1F512"; position: absolute; top: 3px; right: 5px; font-size: 13px;
+    filter: drop-shadow(0 0 2px #000);
+  }
+  #charSelectStatus { font-size: 11px; opacity: 0.55; margin-bottom: 14px; min-height: 14px; }
+  #codeGate { display: none; margin: -6px 0 16px; }
+  #codeGate.show { display: block; }
+  #codeGateLabel { font-size: 11px; opacity: 0.7; margin: 0 0 8px; }
+  #codeGateInput {
+    width: 110px; text-align: center; letter-spacing: 6px; font-size: 16px;
+    padding: 8px 0; border-radius: 6px; border: 1px solid rgba(255,255,255,0.3);
+    background: rgba(0,0,0,0.3); color: #eafbe6; margin-right: 8px;
+  }
+  #codeGateSubmit {
+    background: rgba(255,255,255,0.15); color: #eafbe6; border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 6px; padding: 8px 14px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  #codeGateMsg { font-size: 11px; min-height: 14px; margin: 8px 0 0; color: #ff8b8b; }
+  #btnStartGame {
+    background: #7CFC9E; color: #0a1a0d; border: none; border-radius: 8px;
+    font-weight: 700; font-size: 14px; letter-spacing: 1px; padding: 12px 36px;
+    cursor: pointer; opacity: 0.4; pointer-events: none; transition: opacity 0.15s;
+  }
+  #btnStartGame:not(:disabled) { opacity: 1; pointer-events: auto; }
+</style>
+</head>
+<body>
+
+<div id="charSelect">
+  <div id="charSelectPanel">
+    <h2>CHOOSE YOUR CHARACTER</h2>
+    <p id="charSelectSub">Pick a sprite, then press start</p>
+    <div id="charOptions"></div>
+    <div id="codeGate">
+      <p id="codeGateLabel">Enter code for Admin</p>
+      <input id="codeGateInput" type="password" inputmode="numeric" maxlength="6" placeholder="••••••">
+      <button id="codeGateSubmit">UNLOCK</button>
+      <p id="codeGateMsg"></p>
+    </div>
+    <div id="charSelectStatus">Connecting to server…</div>
+    <button id="btnStartGame" disabled>START</button>
+  </div>
+</div>
+
+<div id="viewport">
+  <canvas id="screen" width="240" height="160"></canvas>
+
+  <div id="overlay">
+    <div id="topBar">
+      <div class="nav-grp">
+        <div class="btn icon-btn" id="btnSave">&#x2913;</div>
+        <div class="btn icon-btn" id="btnLoad">&#x2912;</div>
+      </div>
+      <div class="nav-grp">
+        <div class="btn icon-btn" id="btnChatToggle">&#128172;</div>
+        <div class="btn icon-btn" id="btnFastForward">&#x25B7;&#x25B7;</div>
+        <div class="btn icon-btn" id="btnMenu">&#x2261;</div>
+      </div>
+    </div>
+
+    <div id="chatPanel">
+      <div id="chatLog"></div>
+      <div id="chatInputRow">
+        <input id="chatInput" type="text" maxlength="200" placeholder="Type">
+        <button id="chatSendBtn">SEND</button>
+      </div>
+    </div>
+
+    <div class="btn shoulder" id="btnL">L</div>
+    <div class="btn shoulder" id="btnR">R</div>
+
+    <div id="dpad">
+      <div class="btn" id="up">&#9650;</div>
+      <div class="btn" id="left">&#9664;</div>
+      <div id="dpad-center"></div>
+      <div class="btn" id="right">&#9654;</div>
+      <div class="btn" id="down">&#9660;</div>
+    </div>
+
+    <div id="actionCluster">
+      <div class="btn abtn" id="btnB">B</div>
+      <div class="btn abtn" id="btnA">A</div>
+    </div>
+
+    <div id="metaCluster">
+      <div class="btn pill-btn" id="btnSelect">SELECT</div>
+      <div class="btn pill-btn" id="btnStart">START</div>
+    </div>
+
+    <div id="coords">x:0 y:0</div>
+    <!-- CHECKPOINTS: safe to delete this line along with the matching JS/CSS blocks -->
+    <div id="checkpointToast"></div>
+  </div>
+</div>
+
+<!-- Firebase (Realtime Database) - powers the multiplayer sync -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
+<script>
+(function(){
+  const canvas = document.getElementById('screen');
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  const W = 240, H = 160, TILE = 4;
+  const SPRITE_W = 21, SPRITE_H = 28;
+  // Hitbox is smaller than the sprite artwork ON PURPOSE: it's anchored to
+  // the feet (bottom of the sprite) and shorter than the sprite's full
+  // height. The uncovered strip at the top (head/shoulders) can visually
+  // overlap a sprite standing "in front", so one player can appear to stand
+  // partly behind another instead of two solid boxes just butting heads.
+  //
+  // Each sprite in SPRITE_ROSTER (further down this file) can set its own
+  // "hitbox: { w, h }" — this default is only used if a sprite omits it.
+  const DEFAULT_HITBOX = { w: 18, h: 25 };
+  function hitboxDimsFor(spriteKey){
+    const entry = SPRITE_ROSTER.find((s) => s.key === spriteKey);
+    return (entry && entry.hitbox) || DEFAULT_HITBOX;
+  }
+  // TILE FIX: (camX, camY) is now the TOP-LEFT OF THE 16x16 TILE the player
+  // stands on (always a multiple of 16), NOT the top-left of the sprite art.
+  // The art is drawn relative to that tile (see SPRITE_ART_DX/DY further down),
+  // so the hitbox is simply the tile itself — one player = one tile, exactly
+  // like GBA. (The per-sprite "hitbox" values in SPRITE_ROSTER are no longer used.)
+  function hitboxOf(worldX, worldY /*, spriteKey (unused) */){
+    return { x: worldX, y: worldY, w: 16, h: 16 };
+  }
+  function overlapArea(a, b){
+    const ox = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+    const oy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+    return ox * oy;
+  }
+  // curX/curY = where I am right now, nextX/nextY = where I'm trying to move.
+  // A move is blocked only if it would push me MORE into another player's
+  // hitbox than I already am. If we're already overlapping (e.g. two
+  // players spawned on the same spot at once), moves that reduce or hold
+  // the overlap are still allowed — otherwise both players would be
+  // permanently deadlocked, unable to move at all, the moment they overlap.
+  function collidesWithOthers(curX, curY, nextX, nextY){
+    const mineNow = hitboxOf(curX, curY, mySprite);
+    const mineNext = hitboxOf(nextX, nextY, mySprite);
+    const now = Date.now();
+    for (const id in remotePlayers){
+      const p = remotePlayers[id];
+      if (!p || now - (p.t || 0) > STALE_MS || (p.zone || 'overworld') !== currentZone) continue;
+      const theirs = hitboxOf(p.x, p.y, p.sprite || 'a');
+      const before = overlapArea(mineNow, theirs);
+      const after = overlapArea(mineNext, theirs);
+      if (after > 0 && after >= before) return true;
+    }
+    return false;
+  }
+
+  function hash2(x, y){
+    let h = (x * 374761393 + y * 668265263) ^ ((x * 374761393 + y * 668265263) >> 13);
+    return (((h * 1274126177) ^ ((h * 1274126177) >> 16)) >>> 0) / 4294967295;
+  }
+
+  const BASE = [58, 107, 42], SHADE_LIGHT = [70, 122, 51], SHADE_DARK = [46, 90, 33], BLADE = [83, 140, 60];
+  function tileColor(tx, ty){
+    const r = hash2(tx, ty);
+    return r < 0.06 ? SHADE_DARK : (r < 0.12 ? SHADE_LIGHT : (r < 0.16 ? BLADE : BASE));
+  }
+
+  // A small random spawn offset means two people joining at the same
+  // instant don't land in the exact same spot (they'd still separate fine
+  // even if they did, thanks to the collision fix above, but this avoids
+  // it happening at all in the first place).
+  // GRID FIX: spawn exactly on the tile grid at (0,0). The old random +/-20px
+  // spawn put every player on a different sub-tile "phase", so with 16px
+  // whole-tile steps they could never line up with each other or the world
+  // blocks. Overlapping spawns are safe: collidesWithOthers() still lets
+  // two overlapping players walk apart.
+  let camX = 0;
+  let camY = 0;
+  const SPEED = 1.0; // world px moved per frame WHILE a GBA-style step is in progress (see STEP_SIZE / update() below) — same value as before, so overall walk speed feels unchanged
+  const keys = { up: false, down: false, left: false, right: false };
+
+  function bindHold(el, dir){
+    const set = (v) => (e) => { keys[dir] = v; el.classList.toggle('active', v); if(e) e.preventDefault(); };
+    el.addEventListener('pointerdown', set(true));
+    el.addEventListener('pointerup', set(false));
+    el.addEventListener('pointerleave', set(false));
+    el.addEventListener('pointercancel', set(false));
+  }
+  bindHold(document.getElementById('up'), 'up');
+  bindHold(document.getElementById('down'), 'down');
+  bindHold(document.getElementById('left'), 'left');
+  bindHold(document.getElementById('right'), 'right');
+
+  function bindHook(id){
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('pointerdown', (e) => { e.preventDefault(); el.classList.add('active'); });
+    const off = (e) => { if (e) e.preventDefault(); el.classList.remove('active'); };
+    el.addEventListener('pointerup', off);
+    el.addEventListener('pointerleave', off);
+    el.addEventListener('pointercancel', off);
+  }
+  ['btnA','btnB','btnL','btnR','btnSelect','btnStart','btnSave','btnLoad','btnFastForward','btnMenu'].forEach(bindHook);
+
+  // =====================================================================
+  //  CHECKPOINTS — fully self-contained, temporary/placeholder feature.
+  //  To remove it later: delete this whole block, delete the matching CSS
+  //  block marked "CHECKPOINTS" near the top of <style>, delete the
+  //  <div id="checkpointToast"> line, and delete the one-line call to
+  //  loadSavedCheckpoint(...) inside the auth sign-in handler further down
+  //  (also marked "CHECKPOINTS:"). Nothing else in the file depends on
+  //  any of this.
+  //
+  //  30x30 white squares laid out on a fixed grid around the origin (see
+  //  CHECKPOINTS note directly below). Standing on one and pressing A saves
+  //  your current position to Firebase; it's restored automatically the
+  //  next time you sign in, instead of the default random spot near (0,0).
+  //
+  //  CHECKPOINTS: switched from "N random points with a minimum-spacing
+  //  rule" to a plain fixed grid, so checkpoints are dense and predictable
+  //  everywhere instead of wherever the RNG happened to land one. Density
+  //  is now controlled only by CHECKPOINT_SPACING below (smaller = more
+  //  checkpoints, closer together); CHECKPOINT_COUNT and
+  //  CHECKPOINT_MIN_SPACING no longer exist.
+  //
+  //  CHECKPOINTS: the generated layout (the actual x/y of each square) is
+  //  cached in localStorage the first time it's generated, and reused on
+  //  every later page load. This is what fixes the "checkpoint square is
+  //  gone after I sign back in" bug: previously CHECKPOINTS was re-randomized
+  //  on every load, so the squares moved away from wherever you'd saved.
+  //
+  //  GRID FIX: size was 30px and spacing was 150px — NEITHER is a multiple
+  //  of this game's 16px tile size, so every checkpoint sat at a random
+  //  sub-tile pixel offset instead of lining up with the tile grid the
+  //  player actually walks on (that's the "pixelwise not gridwise, spans
+  //  ~4 blocks" bug). Size is now exactly 16 (one full tile) and spacing is
+  //  160 (an exact 10-tile step), so every checkpoint is precisely one
+  //  block, flush with the grid, no matter how far from spawn it is. Can't
+  //  reference the game's own WORLD_TILE/STEP_SIZE constants here (both
+  //  are declared further down the file and this code runs immediately),
+  //  so 16 is hardcoded — keep it matching those if that ever changes.
+  // =====================================================================
+  const CHECKPOINT_SIZE = 16;       // GRID FIX: was 30 — now exactly one 16px tile
+  const CHECKPOINT_SPACING = 160;   // GRID FIX: was 150 (not a multiple of 16) — now 160 (10 tiles), keeps every checkpoint grid-aligned
+  const CHECKPOINT_SPREAD = 1200;   // CHECKPOINTS: changed from 2000 -> 1200 (how far the grid extends from the origin in each direction)
+  const CHECKPOINT_STORAGE_KEY = 'checkpointLayout_v3'; // GRID FIX: bumped v2 -> v3 so the old off-grid (150px-spaced) cached layout is discarded and regenerated on-grid
+  // CHECKPOINTS: fill these in once you have a save-point PNG — leave FILE
+  // blank to keep the plain white square. Same base/file convention as
+  // WORLD_ASSET_ROSTER / ITEM_ROSTER elsewhere in this file.
+  const CHECKPOINT_ICON_BASE = "https://raw.githubusercontent.com/schlerium/sprites/main/";
+  const CHECKPOINT_ICON_FILE = ""; // e.g. "checkpoint.png"
+  const checkpointIconImg = makeWorldBlockImage(CHECKPOINT_ICON_BASE, CHECKPOINT_ICON_FILE); // null while FILE is blank/still loading — safe to call before its definition below, it's a hoisted function declaration
+
+  // CHECKPOINTS: a full grid (spacing 150px, out to 1200px from origin) means
+  // that walking 600px (10 seconds at this game's move speed) in ANY
+  // direction from anywhere near spawn will always cross paths with several
+  // checkpoints, not just whichever direction the old RNG happened to favor.
+  function generateCheckpoints(){
+    const pts = [];
+    for (let x = -CHECKPOINT_SPREAD; x <= CHECKPOINT_SPREAD; x += CHECKPOINT_SPACING){
+      for (let y = -CHECKPOINT_SPREAD; y <= CHECKPOINT_SPREAD; y += CHECKPOINT_SPACING){
+        pts.push({ x, y });
+      }
+    }
+    return pts;
+  }
+
+  // CHECKPOINTS: load a previously-saved layout if one exists, otherwise
+  // generate a fresh one and save it so it stays fixed from now on.
+  function loadOrGenerateCheckpoints(){
+    try {
+      const saved = localStorage.getItem(CHECKPOINT_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (err) {
+      console.error('Could not read saved checkpoint layout:', err);
+    }
+    const pts = generateCheckpoints();
+    try {
+      localStorage.setItem(CHECKPOINT_STORAGE_KEY, JSON.stringify(pts));
+    } catch (err) {
+      console.error('Could not persist checkpoint layout:', err);
+    }
+    return pts;
+  }
+  const CHECKPOINTS = loadOrGenerateCheckpoints(); // CHECKPOINTS: now fixed across reloads (see loadOrGenerateCheckpoints above)
+
+  function checkpointRect(cp){
+    return { x: cp.x, y: cp.y, w: CHECKPOINT_SIZE, h: CHECKPOINT_SIZE };
+  }
+
+  function drawCheckpoints(){
+    if (currentZone !== 'overworld') return; // CHECKPOINTS: overworld-only
+    for (const cp of CHECKPOINTS){
+      const px = Math.round(SPRITE_X + (cp.x - camX));
+      const py = Math.round(SPRITE_Y + (cp.y - camY));
+      if (px > -CHECKPOINT_SIZE && px < W && py > -CHECKPOINT_SIZE && py < H){
+        if (checkpointIconImg && checkpointIconImg.complete && checkpointIconImg.naturalWidth > 0){
+          ctx.drawImage(checkpointIconImg, px, py, CHECKPOINT_SIZE, CHECKPOINT_SIZE);
+        } else {
+          ctx.fillStyle = 'rgba(255,255,255,0.85)';
+          ctx.fillRect(px, py, CHECKPOINT_SIZE, CHECKPOINT_SIZE);
+        }
+      }
+    }
+  }
+
+  // "Enters" = the player's hitbox touches the checkpoint square at all.
+  function checkpointUnderPlayer(){
+    const mine = hitboxOf(camX, camY, mySprite);
+    return CHECKPOINTS.find((cp) => overlapArea(mine, checkpointRect(cp)) > 0) || null;
+  }
+
+  const checkpointToast = document.getElementById('checkpointToast');
+  let checkpointToastTimer = null;
+  function showCheckpointToast(text){
+    checkpointToast.textContent = text;
+    checkpointToast.classList.add('show');
+    clearTimeout(checkpointToastTimer);
+    checkpointToastTimer = setTimeout(() => checkpointToast.classList.remove('show'), 2000);
+  }
+
+  async function trySaveCheckpoint(){
+    if (!playerId || currentZone !== 'overworld') return; // CHECKPOINTS: overworld-only
+    const cp = checkpointUnderPlayer();
+    if (!cp) return;
+    try {
+      await firebase.database().ref('playerCheckpoints/' + playerId).set({ x: camX, y: camY, t: Date.now() });
+      showCheckpointToast('Checkpoint saved');
+    } catch (err) {
+      console.error('Checkpoint save failed:', err);
+    }
+  }
+
+  async function loadSavedCheckpoint(db, uid){
+    try {
+      const snap = await db.ref('playerCheckpoints/' + uid).once('value');
+      const val = snap.val();
+      if (val && typeof val.x === 'number' && typeof val.y === 'number') {
+        // GRID FIX: older saves were made before 16px whole-tile movement
+        // existed, so they can sit off-grid (e.g. x:9 y:6). Snap them down
+        // to the tile they're inside (9,6 -> 0,0) and write the corrected
+        // spot back so the bad value is gone from the database for good.
+        const gx = Math.floor(val.x / STEP_SIZE) * STEP_SIZE;
+        const gy = Math.floor(val.y / STEP_SIZE) * STEP_SIZE;
+        camX = gx; camY = gy;
+        stepping = false; stepProgress = 0; // drop any half-finished step started before this load finished
+        if (gx !== val.x || gy !== val.y) {
+          db.ref('playerCheckpoints/' + uid).update({ x: gx, y: gy });
+        }
+      }
+    } catch (err) {
+      console.error('Could not load saved checkpoint:', err);
+    }
+  }
+
+  document.getElementById('btnA').addEventListener('pointerdown', () => trySaveCheckpoint());
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'a' || e.key === 'z' || e.key === 'Enter') trySaveCheckpoint();
+  });
+  // =====================================================================
+  //  WORLD ASSETS — buildings/houses made of 16x16 blocks, GBA-style.
+  //  Self-contained, same spirit as the CHECKPOINTS block above. To remove
+  //  it: delete this whole block, delete the drawWorldAssets()/
+  //  drawEnterOverlay() calls inside draw() (marked "WORLD ASSETS:"), and
+  //  delete the collidesWithWorldAssets(...) check + entering-sequence
+  //  hooks inside update() (also marked "WORLD ASSETS:").
+  //
+  //  HOW TO ADD/EDIT A BUILDING — everything lives in WORLD_ASSET_ROSTER
+  //  right below:
+  //    - x, y: the world-px position of the TOP-LEFT PIXEL of block r1c1.
+  //      Every other block's position is calculated from this one point —
+  //      move a whole building by only ever changing x/y.
+  //    - rows, cols: how many 16x16 blocks tall/wide the building is
+  //      (the sample "Pokemart" below is 4 rows x 4 cols, matching your
+  //      reference image).
+  //    - blocks: one entry per cell, named r{row}c{col} (1-indexed from the
+  //      top-left, so r1c1 is the top-left block, r4c3 is row 4 / column 3).
+  //      Each cell is { file, walkable, enter, enterFrames }:
+  //        file        — PNG filename, relative to this asset's `base` URL.
+  //                      Left "" for you to fill in; a colored placeholder
+  //                      square is drawn in its place until you do.
+  //        walkable    — can the player stand here? Defaults to false
+  //                      (solid) for any field you don't set, so you only
+  //                      need to mark the exceptions (like a doorway).
+  //        enter       — marks this block as a doorway: stepping onto it
+  //                      triggers the placeholder "enter" sequence below.
+  //        enterFrames — [] for now; a door-opening animation's PNG
+  //                      filenames would go here later.
+  //    - asset2 (further down) is an empty template — copy it, rename the
+  //      key, and fill in x/y/rows/cols/blocks to add a second building.
+  //
+  //  OVERLAP SAFETY: if two buildings' blocks are placed so they land on
+  //  the same 16x16 world tile, every block sharing that tile is marked
+  //  "conflicted" — it draws nothing at all (not even a placeholder) and
+  //  can't block or unblock movement, until you move one of them apart.
+  //  Check the browser console for a "WORLD ASSETS: overlap at..." warning
+  //  naming exactly which asset/block pairs collided.
+  // =====================================================================
+  const WORLD_TILE = 16; // WORLD ASSETS: size of one block in world px (matches the player's GBA MOVEMENT step size by design)
+
+  const WORLD_ASSET_ROSTER = [
+    {
+      key: 'asset1',
+      name: 'Pokemart',
+      base: 'https://raw.githubusercontent.com/schlerium/sprites/main/',        // WORLD ASSETS: paste the raw URL your block PNGs are hosted under (same idea as SPRITE_ROSTER's `base`) — leave '' until you have one
+      x: 48, y: 48,    // WORLD ASSETS: top-left pixel of r1c1 — move the whole building by editing just these two numbers
+      rows: 4, cols: 4,
+      blocks: {
+        r1c1: { file: 'shop11.png' }, r1c2: { file: 'shop12.png' }, r1c3: { file: 'shop13.png' }, r1c4: { file: 'shop14.png' },
+        r2c1: { file: 'shop21.png' }, r2c2: { file: 'shop22.png' }, r2c3: { file: 'shop23.png' }, r2c4: { file: 'shop24.png' },
+        r3c1: { file: 'shop31.png' }, r3c2: { file: 'shop32.png' }, r3c3: { file: 'shop33.png' }, r3c4: { file: 'shop34.png' },
+        r4c1: { file: 'shop41.png' }, r4c2: { file: 'shop42.png' },
+        r4c3: { file: 'shop43.png', walkable: true, enter: true, enterFrames: [] }, // WORLD ASSETS: the shop's door — only walkable+enterable block in this building
+        r4c4: { file: 'shop44.png' },
+      }
+    },
+    {
+      // WORLD ASSETS: template for the next building — copy this object,
+      // give it a new key, and fill in name/base/x/y/rows/cols/blocks.
+      // Left empty on purpose: rows/cols of 0 means it renders and blocks
+      // nothing until you configure it.
+      key: 'asset2',
+      name: 'house1',
+      base: 'https://raw.githubusercontent.com/schlerium/sprites/main/',
+      x: 64, y: -96,
+      rows: 4, cols: 5,
+      blocks: {
+       r1c1: { file: 'house1-11.png' }, r1c2: { file: 'house1-12.png' }, r1c3: { file: 'house1-13.png' }, r1c4: { file: 'house1-14.png' }, r1c5: { file: 'house1-15.png' },
+       r2c1: { file: 'house1-21.png' }, r2c2: { file: 'house1-22.png' }, r2c3: { file: 'house1-23.png' }, r2c4: { file: 'house1-24.png' }, r2c5: { file: 'house1-25.png' },
+       r3c1: { file: 'house1-31.png' }, r3c2: { file: 'house1-32.png' }, r3c3: { file: 'house1-33.png' }, r3c4: { file: 'house1-34.png' }, r3c5: { file: 'house1-35.png' },
+       r4c1: { file: 'house1-41.png' },
+       r4c2: { file: 'house1-42.png', walkable: true, enter: true, enterFrames: [] },
+       r4c3: { file: 'house1-43.png' }, r4c4: { file: 'house1-44.png' }, r4c5: { file: 'house1-45.png' },
+      }
+    }
+  ];
+
+  // =====================================================================
+  //  INTERIORS — self-contained "rooms" you step into through a door.
+  //  Each interior lives in its OWN local coordinate space starting at
+  //  (0,0) — NOT anywhere on the overworld grid. That's the "void" the
+  //  user asked for: an interior's tiles are never placed at overworld
+  //  x/y, so no interior can ever collide with the overworld or with any
+  //  other interior, no matter how big any of them get. We don't even
+  //  need to pick a location "far away" from anything — a completely
+  //  separate coordinate space can't overlap by definition.
+  //
+  //  HOW TO ADD/EDIT AN INTERIOR — keyed by the OUTDOOR asset's `key`
+  //  from WORLD_ASSET_ROSTER above (so "asset1"'s door leads into
+  //  INTERIOR_ROSTER.asset1). Same {rows, cols, blocks} shape as an
+  //  outdoor asset, with two differences:
+  //    - Tiles default WALKABLE (floor), since most of a room's tiles
+  //      are walkable and only walls/furniture need marking `walkable:false`.
+  //      Leave a cell out of `blocks` entirely to get plain walkable floor.
+  //    - Exactly one cell should have `enter:true` — that's the exit;
+  //      walking onto it steps back outside, right where the player stood
+  //      before entering.
+  //    - `spawn: {r, c}` says which tile the player appears on when they
+  //      first walk in (usually just inside the door, one tile up from it).
+  //  Leave an interior out of this roster and its door still fades out
+  //  and back in on the same overworld tile — same harmless placeholder
+  //  behavior as before any interior exists for it.
+  // =====================================================================
+  const INTERIOR_ROSTER = {
+    asset1: {
+      name: 'Pokemart Interior',
+      base: '', // WORLD ASSETS-style base URL for this room's floor/wall/furniture PNGs — leave '' until you have one
+      rows: 5, cols: 4,
+      blocks: {
+        // Walls around the edge (top row + side columns) — solid.
+        r1c1: { walkable: false }, r1c2: { walkable: false }, r1c3: { walkable: false }, r1c4: { walkable: false },
+        r2c1: { walkable: false }, r2c4: { walkable: false },
+        r3c1: { walkable: false }, r3c4: { walkable: false },
+        r4c1: { walkable: false }, r4c4: { walkable: false },
+        // Bottom row is the wall EXCEPT the doorway (r5c2), which is the exit tile.
+        r5c1: { walkable: false }, r5c3: { walkable: false }, r5c4: { walkable: false },
+        r5c2: { walkable: true, enter: true, enterFrames: [] }, // WORLD ASSETS: step here to walk back outside
+        // Everything else left unlisted defaults to plain walkable floor —
+        // drop furniture PNGs in here later, e.g.:
+        // r3c2: { file: 'counter.png', walkable: false },
+      },
+      spawn: { r: 4, c: 2 } // where the player appears, just inside the door
+    }
+    // WORLD ASSETS-style template for the next interior — copy this whole
+    // block, rename the key to match another outdoor asset's `key`
+    // (e.g. "asset2"), and fill in rows/cols/blocks/spawn.
+    // asset2: { name: '', base: '', rows: 0, cols: 0, blocks: {}, spawn: { r: 1, c: 1 } }
+  };
+
+  function interiorBlockDefaults(b){
+    // Interiors default to WALKABLE floor (opposite of outdoor's default
+    // solid) since most of a room is open space you can walk across.
+    return Object.assign({ file: '', walkable: true, enter: false, enterFrames: [], overPlayer: false }, b || {});
+  }
+
+  // Flatten each interior's roster entry into its own local block list,
+  // exactly like buildWorldBlocks() does for the overworld — but using
+  // LOCAL (row,col)*WORLD_TILE coordinates starting at (0,0), never the
+  // outdoor asset's x/y. This is what keeps every interior in its own
+  // isolated space.
+  const INTERIOR_BLOCKS = {}; // zoneKey -> block list
+  function buildInteriorBlocks(zoneKey){
+    const def = INTERIOR_ROSTER[zoneKey];
+    if (!def || !def.rows || !def.cols) return [];
+    const list = [];
+    for (let r = 1; r <= def.rows; r++){
+      for (let c = 1; c <= def.cols; c++){
+        const key = 'r' + r + 'c' + c;
+        const block = interiorBlockDefaults(def.blocks[key]);
+        const localX = (c - 1) * WORLD_TILE;
+        const localY = (r - 1) * WORLD_TILE;
+        list.push({
+          zoneKey, blockKey: key,
+          x: localX, y: localY,
+          file: block.file, walkable: block.walkable, enter: block.enter, enterFrames: block.enterFrames,
+          overPlayer: block.overPlayer,
+          img: makeWorldBlockImage(def.base, block.file),
+          conflicted: false
+        });
+      }
+    }
+    return list;
+  }
+  Object.keys(INTERIOR_ROSTER).forEach((zoneKey) => { INTERIOR_BLOCKS[zoneKey] = buildInteriorBlocks(zoneKey); });
+
+  // Which space the player is currently in: 'overworld', or an interior's
+  // zone key (matching its INTERIOR_ROSTER / outdoor asset key). Movement,
+  // collision, drawing, and the background all branch on this.
+  let currentZone = 'overworld';
+  // Where to put the player back in the OVERWORLD when they walk back out
+  // of whichever interior they're currently in (captured the moment they
+  // stepped through the door).
+  let overworldReturnX = 0, overworldReturnY = 0;
+
+  function activeBlocks(){
+    return currentZone === 'overworld' ? WORLD_BLOCKS : (INTERIOR_BLOCKS[currentZone] || []);
+  }
+
+  // WORLD ASSETS: single ANCHOR POINT (not a box) used only for world-tile
+  // collision/entering — the horizontal center of the sprite, at foot
+  // height. This is DIFFERENT from hitboxOf()'s box, used for player-vs-
+  // player collision only.
+  //
+  // Why a point and not a same-size box: STEP_SIZE and WORLD_TILE are both
+  // 16, so this point moves by exactly one tile-width per step — it always
+  // lands inside exactly ONE 16x16 block, no matter what pixel "phase"
+  // your spawn/saved position happens to be on relative to a building's
+  // grid. A same-size 16x16 BOX doesn't have that guarantee: unless the
+  // player's position is perfectly phase-aligned with the building (an
+  // exact multiple of 16px apart), the box straddles two tiles by however
+  // many pixels it's off by, and a solid neighbor tile blocks you even
+  // while standing "on" an open one. That's the bug from the first fix —
+  // sizing the box to one tile wasn't enough, because it could still be a
+  // few px out of phase with the building's own grid. A point can't
+  // straddle anything: it's always inside exactly one tile.
+  // TILE FIX: the anchor is now just the centre of the player's own tile.
+  // (Old version used the sprite art's box: x + 10.5, y + 20, which is NOT
+  // where the drawn feet were, so the "invisible hitbox" sat ~9px away from
+  // buildings and the player could never stand flush against one.)
+  function worldTileAnchorOf(worldX, worldY){
+    return { x: worldX + WORLD_TILE / 2, y: worldY + WORLD_TILE / 2 };
+  }
+  function pointInBlock(px, py, b){
+    return px >= b.x && px < b.x + WORLD_TILE && py >= b.y && py < b.y + WORLD_TILE;
+  }
+  function worldBlockDefaults(b){
+    return Object.assign({ file: '', walkable: false, enter: false, enterFrames: [], overPlayer: false }, b || {});
+  }
+  function makeWorldBlockImage(base, file){
+    if (!file) return null;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = (base || '') + file;
+    return img;
+  }
+
+  // WORLD ASSETS: flatten the roster into a single list of placed blocks
+  // with real world coordinates, and detect any tile overlaps while at it.
+  const WORLD_BLOCKS = [];
+  (function buildWorldBlocks(){
+    const tileMap = {}; // world "x,y" -> every block placed on that exact tile
+    WORLD_ASSET_ROSTER.forEach((asset) => {
+      if (!asset.rows || !asset.cols) return; // WORLD ASSETS: empty template entries (like asset2) are skipped entirely
+      for (let r = 1; r <= asset.rows; r++){
+        for (let c = 1; c <= asset.cols; c++){
+          const key = 'r' + r + 'c' + c;
+          const block = worldBlockDefaults(asset.blocks[key]);
+          const worldX = asset.x + (c - 1) * WORLD_TILE;
+          const worldY = asset.y + (r - 1) * WORLD_TILE;
+          const entry = {
+            assetKey: asset.key, blockKey: key,
+            x: worldX, y: worldY,
+            file: block.file, walkable: block.walkable, enter: block.enter, enterFrames: block.enterFrames,
+            overPlayer: block.overPlayer, // LAYERING: true = always draw this block ON TOP of players (roof overhangs, tree tops)
+            img: makeWorldBlockImage(asset.base, block.file),
+            conflicted: false
+          };
+          const tileId = worldX + ',' + worldY;
+          (tileMap[tileId] || (tileMap[tileId] = [])).push(entry);
+          WORLD_BLOCKS.push(entry);
+        }
+      }
+    });
+    Object.keys(tileMap).forEach((tileId) => {
+      const claimants = tileMap[tileId];
+      if (claimants.length > 1){
+        claimants.forEach((b) => { b.conflicted = true; }); // WORLD ASSETS: overlap — hide + ignore for collision until fixed
+        console.warn('WORLD ASSETS: overlap at world tile (' + tileId + ') between: ' +
+          claimants.map((b) => b.assetKey + '/' + b.blockKey).join(', '));
+      }
+    });
+  })();
+
+  // LAYERING: one block at a time now — draw() sorts blocks and players
+  // together by row so buildings correctly cover / sit behind players.
+  function drawWorldBlock(b){
+    {
+      const px = Math.round(SPRITE_X + (b.x - camX));
+      const py = Math.round(SPRITE_Y + (b.y - camY));
+      if (px <= -WORLD_TILE || px >= W || py <= -WORLD_TILE || py >= H) return;
+      if (b.img && b.img.complete && b.img.naturalWidth > 0){
+        ctx.drawImage(b.img, px, py, WORLD_TILE, WORLD_TILE);
+      } else {
+        // WORLD ASSETS: placeholder while `file` is "" (or still loading) —
+        // green tint = walkable, gray tint = solid, so the layout (and the
+        // door) can be checked before any real art exists.
+        ctx.fillStyle = b.walkable ? 'rgba(120,220,140,0.35)' : 'rgba(120,140,160,0.35)';
+        ctx.fillRect(px, py, WORLD_TILE, WORLD_TILE);
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px + 0.5, py + 0.5, WORLD_TILE - 1, WORLD_TILE - 1);
+      }
+    }
+  }
+
+  // WORLD ASSETS: whole-tile collision, same "checked once, all-or-nothing"
+  // rule GBA MOVEMENT uses for players — a destination tile is either fully
+  // open or fully blocked, never partially.
+  function collidesWithWorldAssets(nextX, nextY){
+    const mineNext = worldTileAnchorOf(nextX, nextY);
+    // Inside an interior, the room's own edges act as solid walls — you
+    // can't walk off a room's rows/cols into the void surrounding it, even
+    // on a cell that has no explicit wall block defined.
+    if (currentZone !== 'overworld'){
+      const def = INTERIOR_ROSTER[currentZone];
+      if (def){
+        const col = Math.floor(mineNext.x / WORLD_TILE) + 1;
+        const row = Math.floor(mineNext.y / WORLD_TILE) + 1;
+        if (row < 1 || row > def.rows || col < 1 || col > def.cols) return true;
+      }
+    }
+    for (const b of activeBlocks()){
+      if (b.conflicted || b.walkable) continue;
+      if (pointInBlock(mineNext.x, mineNext.y, b)) return true;
+    }
+    return false;
+  }
+  function findEnterBlockUnderPlayer(){
+    const mine = worldTileAnchorOf(camX, camY);
+    return activeBlocks().find((b) => b.enter && !b.conflicted &&
+      pointInBlock(mine.x, mine.y, b)) || null;
+  }
+
+  // WORLD ASSETS / INTERIORS: stepping onto any block with enter:true fades
+  // the screen to black, then swaps `currentZone` — either from 'overworld'
+  // into a mapped interior (INTERIOR_ROSTER[asset.key]) or, from inside an
+  // interior, back out to 'overworld' — and fades back in. If the door's
+  // outdoor asset has no matching entry in INTERIOR_ROSTER yet, this falls
+  // back to the old placeholder behavior (teleport to the same overworld
+  // tile), so unfinished buildings still fade harmlessly instead of erroring.
+  let entering = false, enterPhase = null, enterAlpha = 0, enterFadeAcc = 0;
+  let pendingZone = 'overworld', pendingX = 0, pendingY = 0;
+  const ENTER_FADE_MS = 350; // duration of each half (fade-out, fade-in) of the transition
+
+  function beginEnter(enterBlock){
+    if (currentZone === 'overworld'){
+      // Stepping through an outdoor door: remember exactly where outside to
+      // put the player back later, then look up whether that building has a
+      // mapped interior to walk into.
+      overworldReturnX = stepFromX; overworldReturnY = stepFromY;
+      const interiorDef = INTERIOR_ROSTER[enterBlock.assetKey];
+      if (interiorDef && interiorDef.spawn){
+        pendingZone = enterBlock.assetKey;
+        pendingX = (interiorDef.spawn.c - 1) * WORLD_TILE;
+        pendingY = (interiorDef.spawn.r - 1) * WORLD_TILE;
+      } else {
+        // WORLD ASSETS: no interior mapped for this door yet — placeholder:
+        // just teleport back to the same spot outside.
+        pendingZone = 'overworld';
+        pendingX = stepFromX; pendingY = stepFromY;
+      }
+    } else {
+      // Stepping onto an interior's exit tile: always go back to the
+      // overworld tile captured when we walked in.
+      pendingZone = 'overworld';
+      pendingX = overworldReturnX; pendingY = overworldReturnY;
+    }
+    entering = true; enterPhase = 'out'; enterFadeAcc = 0; enterAlpha = 0;
+  }
+
+  function updateEnterSequence(){
+    enterFadeAcc += 1000 / 60;
+    const t = Math.min(1, enterFadeAcc / ENTER_FADE_MS);
+    if (enterPhase === 'out'){
+      enterAlpha = t;
+      if (t >= 1){
+        // Screen is fully black here — safe to swap zones with nothing visible.
+        camX = pendingX; camY = pendingY;
+        currentZone = pendingZone;
+        stepping = false; stepProgress = 0; // drop any half-finished step from before the swap
+        enterPhase = 'in'; enterFadeAcc = 0;
+      }
+    } else if (enterPhase === 'in'){
+      enterAlpha = 1 - t;
+      if (t >= 1){
+        entering = false; enterPhase = null; enterAlpha = 0;
+      }
+    }
+  }
+  function drawEnterOverlay(){
+    if (enterAlpha <= 0) return;
+    ctx.fillStyle = '#000';
+    ctx.globalAlpha = enterAlpha;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+  // =====================================================================
+  //  END WORLD ASSETS block
+  // =====================================================================
+
+  // =====================================================================
+  //  COLLECTIBLE ITEMS — BEGIN   (self-contained, same spirit as
+  //  CHECKPOINTS / the LUDO minigame above)
+  //
+  //  What it is: ITEM_COUNT (10) shared item tiles scattered randomly
+  //  within ITEM_SPAWN_RADIUS world-px of the OVERWORLD spawn point
+  //  (0,0). Synced via Firebase so every player sees the same items in
+  //  the same spots. Each item tile is a solid (unwalkable) block — you
+  //  have to walk up to it and face it, then press A to collect it: the
+  //  tile then vanishes AND becomes walkable (same `collected` flag drives
+  //  both, see collidesWithItems() / drawList in draw()). Collecting an
+  //  item writes inventory/{yourUid}/{itemId} = { t: <timestamp> } —
+  //  itemId is that item's fixed slot id (item0..item9), not its type, so
+  //  your inventory is really a log of "which of the 10 spots, and when".
+  //  Facing it just means your existing `facing` direction points at the
+  //  item's tile — since idle frame 0 of a direction IS that direction's
+  //  "standing" sprite already (e.g. facing:'right' + walkIndex 0 = your
+  //  right-facing idle frame), nothing extra is needed for that part.
+  //
+  //  Respawn rule: every ITEM_CYCLE_MS (5 hours), any item id that has
+  //  been collected gets a brand new random position + item type and goes
+  //  back to uncollected. Ids nobody has collected yet are left completely
+  //  alone — they don't move, reset, or despawn just because the 5 hours
+  //  passed. This is checked (and, via a Firebase transaction, safely
+  //  resolved even if several players' browsers check at the same moment)
+  //  once at sign-in and then every ITEM_CHECK_INTERVAL_MS after that.
+  //
+  //  Overworld-only by design: items spawn relative to the OVERWORLD
+  //  spawn point, so — same reasoning as the LUDO seat tiles above —
+  //  they're gated behind currentZone === 'overworld' everywhere, and
+  //  never drawn or collidable while inside any interior's own isolated
+  //  void.
+  //
+  //  HOW TO ADD A NEW ITEM TYPE: add one entry to ITEM_ROSTER below (key,
+  //  name, file, base) — new slots will start picking it at random the
+  //  moment it's added. No other line needs to change.
+  //
+  //  HOW TO REMOVE IT COMPLETELY (nothing else in the file depends on it):
+  //   1. Delete everything from this "COLLECTIBLE ITEMS — BEGIN" line down
+  //      to the "COLLECTIBLE ITEMS — END" line.
+  //   2. Delete the 4 one-line hooks that end in "// ITEMS: ..." — one in
+  //      update()'s step-collision check, one in draw()'s block drawList,
+  //      one in the btnA/keydown handlers, and one inside
+  //      firebase.auth().onAuthStateChanged (the itemsInit(db) call).
+  //   3. Firebase console -> Realtime Database: delete the "spawnedItems"
+  //      node in Data (the "inventory" node is left alone if anything
+  //      else in your rules still references it).
+  //   Then search the file for "ITEM_" / "itemsInit" / "tryCollectItem":
+  //   zero matches means clean.
+  //
+  //  FIREBASE SCHEMA THIS MATCHES (from your existing rules — nothing new
+  //  needed to be added for this):
+  //      spawnedItems: { lastRespawnTime: <ms>, items: { item0: {...}, ... } }
+  //      inventory/$uid/$itemId: { t: <ms> }
+  // =====================================================================
+  const ITEM_COUNT = 10;
+  const ITEM_CYCLE_MS = 5 * 60 * 60 * 1000;      // 5 hours between respawn checks
+  const ITEM_CHECK_INTERVAL_MS = 60 * 1000;      // how often a client re-checks whether the 5h mark passed
+  const ITEM_SPAWN_RADIUS = 160;                 // world px around the overworld spawn (0,0) that items can land in
+
+  // Money / fruit / plain collectibles — no gameplay effect yet on purpose;
+  // `type` is saved per player so a value or use can be hung off it later.
+  const ITEM_ROSTER = [
+    { key: 'coin', name: 'Coin', base: "https://raw.githubusercontent.com/schlerium/sprites/main/", file: "coin.png" }
+    // ITEMS: apple/trinket removed for now — their PNGs don't exist yet,
+    // so they were falling back to the plain placeholder dot instead of
+    // real art (that's why some "coins" looked different from others).
+    // Once you've uploaded the files, uncomment/add entries like:
+    // , { key: 'apple',   name: 'Apple',   base: "https://raw.githubusercontent.com/schlerium/sprites/main/", file: "apple.png" }
+    // , { key: 'trinket', name: 'Trinket', base: "https://raw.githubusercontent.com/schlerium/sprites/main/", file: "trinket.png" }
+  ];
+  const ITEM_ROSTER_BY_KEY = {};
+  ITEM_ROSTER.forEach((it) => { ITEM_ROSTER_BY_KEY[it.key] = it; });
+  const itemImagesByType = {};
+  ITEM_ROSTER.forEach((it) => { itemImagesByType[it.key] = makeWorldBlockImage(it.base, it.file); });
+
+  let itemSlots = [];          // local mirror, kept in sync via .on('value') — array of {id,x,y,type,collected}
+  let itemsRef = null;
+
+  function itemToast(text){ showCheckpointToast(text); } // ITEMS: reuse the CHECKPOINTS toast pill, no new UI needed
+
+  function itemRandomGridPos(){
+    const range = Math.floor(ITEM_SPAWN_RADIUS / WORLD_TILE);
+    const gx = Math.floor(Math.random() * (range * 2 + 1)) - range;
+    const gy = Math.floor(Math.random() * (range * 2 + 1)) - range;
+    return { x: gx * WORLD_TILE, y: gy * WORLD_TILE };
+  }
+  function itemTileBlocked(x, y, taken){
+    if (x === 0 && y === 0) return true; // keep the exact spawn tile clear
+    if (taken.has(x + ',' + y)) return true;
+    for (const b of WORLD_BLOCKS){ if (!b.conflicted && !b.walkable && b.x === x && b.y === y) return true; }
+    for (const t of LUDO_TILES){ if (t.x === x && t.y === y) return true; } // ITEMS: stay off the Ludo seats too
+    return false;
+  }
+  function itemRandomSlotData(taken){
+    let p, tries = 0;
+    do { p = itemRandomGridPos(); tries++; } while (itemTileBlocked(p.x, p.y, taken) && tries < 40);
+    taken.add(p.x + ',' + p.y);
+    const type = ITEM_ROSTER[Math.floor(Math.random() * ITEM_ROSTER.length)].key;
+    return { x: p.x, y: p.y, type, collected: false };
+  }
+  // FIREBASE SCHEMA: spawnedItems/items is an OBJECT keyed by fixed ids
+  // "item0".."item9" (not an array) — this is what your existing
+  // spawnedItems rule (hasChildren(['lastRespawnTime','items'])) expects.
+  function itemMakeItemsObj(count){
+    const taken = new Set();
+    const obj = {};
+    for (let i = 0; i < count; i++) obj['item' + i] = itemRandomSlotData(taken);
+    return obj;
+  }
+
+  // Runs once at sign-in and then on a timer: if the 5h window has passed,
+  // respawn (new random spot + type) ONLY the item ids currently marked
+  // collected, leave every other item exactly as it is, and restart the
+  // window. The Firebase transaction makes this safe even if multiple
+  // players' browsers race to run it at the same moment.
+  //
+  // FIREBASE SCHEMA: this writes the WHOLE "spawnedItems" node as
+  // { lastRespawnTime: <ms>, items: { item0: {...}, ... } } — matching
+  // your existing rule's ".validate": "newData.hasChildren(['lastRespawnTime','items'])"
+  // exactly (both fields must be present on every write to this node).
+  function itemsMaybeAdvanceCycle(){
+    if (!itemsRef) return;
+    itemsRef.transaction((cur) => {
+      if (!cur || !cur.items || !cur.lastRespawnTime){
+        return { lastRespawnTime: Date.now(), items: itemMakeItemsObj(ITEM_COUNT) };
+      }
+      if (Date.now() - cur.lastRespawnTime < ITEM_CYCLE_MS) return cur; // not due yet — leave untouched
+      const taken = new Set();
+      const ids = Object.keys(cur.items);
+      ids.forEach((id) => { const s = cur.items[id]; if (s && !s.collected) taken.add(s.x + ',' + s.y); });
+      const items = {};
+      ids.forEach((id) => { const s = cur.items[id]; items[id] = (s && s.collected) ? itemRandomSlotData(taken) : s; });
+      return { lastRespawnTime: Date.now(), items };
+    }, (err, committed, snap) => {
+      // ITEMS: this used to fail completely silently — a denied write here
+      // (wrong node name/shape vs. the actual rule) meant the node never
+      // got created and NOTHING would ever show up, with zero feedback.
+      // Now it logs to the console and pops the on-screen toast instead.
+      if (err){ console.error('ITEMS: transaction on "spawnedItems" failed — check the Firebase rule:', err); itemToast('ITEMS BLOCKED: CHECK DB RULE'); return; }
+      if (!committed){ console.warn('ITEMS: transaction aborted (lost a race, will retry on the next check)'); }
+    }, false);
+  }
+
+  function itemsInit(db){
+    console.log('ITEMS: itemsInit() running for player', playerId); // ITEMS: confirms this actually got called at all
+    itemsRef = db.ref('spawnedItems');
+    itemsMaybeAdvanceCycle();
+    setInterval(itemsMaybeAdvanceCycle, ITEM_CHECK_INTERVAL_MS);
+    itemsRef.child('items').on('value', (snap) => {
+      const val = snap.val() || {};
+      itemSlots = Object.keys(val).map((id) => Object.assign({ id }, val[id]));
+      console.log('ITEMS: slots synced, count =', itemSlots.length); // ITEMS: confirms data actually arrived from Firebase
+    }, (err) => {
+      // ITEMS: a denied READ on spawnedItems/items also used to be silent —
+      // this is the other half of the same "nothing ever appears" symptom.
+      console.error('ITEMS: reading "spawnedItems/items" failed — check the Firebase rule:', err);
+      itemToast('ITEMS BLOCKED: CHECK DB RULE');
+    });
+  }
+
+  // ITEMS: solid-tile collision for the overworld step check — an
+  // uncollected item blocks the tile exactly like a WORLD_BLOCKS wall does.
+  function collidesWithItems(nextX, nextY){
+    if (currentZone !== 'overworld') return false; // ITEMS: overworld-only, see block header
+    const mineNext = worldTileAnchorOf(nextX, nextY);
+    for (const s of itemSlots){
+      if (!s || s.collected) continue;
+      if (pointInBlock(mineNext.x, mineNext.y, s)) return true;
+    }
+    return false;
+  }
+  function drawItemAt(s){
+    const img = itemImagesByType[s.type];
+    const px = Math.round(SPRITE_X + (s.x - camX));
+    const py = Math.round(SPRITE_Y + (s.y - camY));
+    if (px <= -WORLD_TILE || px >= W || py <= -WORLD_TILE || py >= H) return;
+    if (img && img.complete && img.naturalWidth > 0){
+      ctx.drawImage(img, px, py, WORLD_TILE, WORLD_TILE);
+    } else {
+      // ITEMS: placeholder while `file` is missing/still loading — a small
+      // gold dot, distinct from the WORLD ASSETS wall/floor placeholders.
+      ctx.fillStyle = 'rgba(255,209,102,0.85)';
+      ctx.beginPath(); ctx.arc(px + WORLD_TILE / 2, py + WORLD_TILE / 2, WORLD_TILE / 3, 0, 6.2832); ctx.fill();
+    }
+  }
+  // The tile directly in front of the player, based on current facing —
+  // this doubles as "am I close enough and pointed the right way".
+  function itemFacingTile(){
+    let fx = camX, fy = camY;
+    if (facing === 'up') fy -= WORLD_TILE;
+    if (facing === 'down') fy += WORLD_TILE;
+    if (facing === 'left') fx -= WORLD_TILE;
+    if (facing === 'right') fx += WORLD_TILE;
+    return { x: fx, y: fy };
+  }
+  function tryCollectItem(){
+    if (!playerId || currentZone !== 'overworld' || stepping || entering) return; // ITEMS: overworld-only, see block header
+    const f = itemFacingTile();
+    const slot = itemSlots.find((s) => s && !s.collected && s.x === f.x && s.y === f.y);
+    if (!slot) return;
+    const type = slot.type;
+    firebase.database().ref('spawnedItems/items/' + slot.id).transaction((cur) => {
+      if (!cur || cur.collected) return cur; // already gone, or someone else got it first
+      return Object.assign({}, cur, { collected: true, collectedBy: playerId, collectedAt: Date.now() });
+    }, (err, committed, snap) => {
+      if (err){ console.error('ITEMS: collect failed — check the Firebase rule:', err); return; }
+      if (!committed) return;
+      const val = snap.val();
+      if (!val || val.collectedBy !== playerId) return; // lost the race to another player
+      // FIREBASE SCHEMA: inventory/$uid/$itemId must be an object with a
+      // numeric "t" field (your rule: hasChildren(['t'])) — NOT a raw
+      // number — so this records the timestamp this item was picked up.
+      firebase.database().ref('inventory/' + playerId + '/' + slot.id).set({ t: Date.now() });
+      itemToast('Picked up ' + ((ITEM_ROSTER_BY_KEY[type] || {}).name || type));
+    }, false);
+  }
+  document.getElementById('btnA').addEventListener('pointerdown', () => tryCollectItem()); // ITEMS: stacks alongside the existing btnA listeners (checkpoint save, Ludo A)
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'a' || e.key === 'z' || e.key === 'Enter') tryCollectItem();
+  });
+  // =====================================================================
+  //  COLLECTIBLE ITEMS — END
+  // =====================================================================
+
+  window.addEventListener('keydown', (e) => {
+    if (document.activeElement && document.activeElement.id === 'chatInput') return;
+    if (e.key === 'ArrowUp') keys.up = true;
+    if (e.key === 'ArrowDown') keys.down = true;
+    if (e.key === 'ArrowLeft') keys.left = true;
+    if (e.key === 'ArrowRight') keys.right = true;
+  });
+  window.addEventListener('keyup', (e) => {
+    if (document.activeElement && document.activeElement.id === 'chatInput') return;
+    if (e.key === 'ArrowUp') keys.up = false;
+    if (e.key === 'ArrowDown') keys.down = false;
+    if (e.key === 'ArrowLeft') keys.left = false;
+    if (e.key === 'ArrowRight') keys.right = false;
+  });
+
+  // =====================================================================
+  //  SPRITE ROSTER — the ONE place to add/edit/lock a sprite.
+  //  To add a new sprite: copy one {...} block below, give it a unique
+  //  "key" (single lowercase letter/word, must not repeat), a display
+  //  "name", set "locked" true/false, and fill in "base" + the 4 walk
+  //  frame filenames per direction. That's it — the character-select
+  //  screen, animation system, and multiplayer rendering all pick it up
+  //  automatically. No other file or line needs to change.
+  // =====================================================================
+  const SPRITE_ROSTER = [
+    {
+      key: 'a',
+      name: 'Admin',
+      locked: true,
+      base: "https://raw.githubusercontent.com/schlerium/sprites/main/",
+      down:  ["MV1.png", "MV2.png", "MV1.png", "MV3.png"],
+      up:    ["MB1.png", "MB2.png", "MB1.png", "MB3.png"],
+      left:  ["ML0.png", "ML1.png", "ML0.png", "ML2.png"],
+      right: ["MR0.png", "MR1.png", "MR0.png", "MR2.png"],
+      hitbox: { w: 18, h: 25 } // collision box for THIS sprite; smaller than the art on purpose (see note below)
+    },
+    {
+      key: 'b',
+      name: 'Adam',
+      locked: false,
+      base: "https://raw.githubusercontent.com/schlerium/sprites/main/",
+      down:  ["BF0.png", "BF1.png", "BF0.png", "BF2.png"],
+      up:    ["BB0.png", "BB1.png", "BB0.png", "BB2.png"],
+      left:  ["BL0.png", "BL1.png", "BL0.png", "BL2.png"],
+      right: ["BR0.png", "BR1.png", "BR0.png", "BR2.png"],
+      hitbox: { w: 18, h: 25 }
+    },
+    {
+      key: 'c',
+       name: 'Ash',
+       locked: true,
+       base: "https://raw.githubusercontent.com/schlerium/sprites/main/",
+       down:  ["ak0.png", "ak1.png", "ak0.png", "ak2.png"],
+       up:    ["akb0.png", "akb1.png", "akb0.png", "akb2.png"],
+       left:  ["akl0.png", "akl1.png", "akl0.png", "akl2.png"],
+       right: ["akr0.png", "akr1.png", "akr0.png", "akr2.png"],
+       hitbox: { w: 16, h: 19 } // tweak per-sprite if a character's art has a different footprint
+     }
+  ];
+
+  function makeFrame(base, file){
+    if (!file) return null;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = base + file;
+    return img;
+  }
+  function buildAnims(entry){
+    const o = {};
+    ['down','up','left','right'].forEach(dir => {
+      o[dir] = entry[dir].map(f => makeFrame(entry.base, f));
+    });
+    return o;
+  }
+
+  const animsBySprite = {};
+  const LOCKED_SPRITES = [];
+  SPRITE_ROSTER.forEach((entry) => {
+    animsBySprite[entry.key] = buildAnims(entry);
+    if (entry.locked) LOCKED_SPRITES.push(entry.key);
+  });
+
+  // Build the character-select cards straight from the roster above.
+  const charOptionsEl = document.getElementById('charOptions');
+  SPRITE_ROSTER.forEach((entry) => {
+    const card = document.createElement('div');
+    card.className = 'charOption';
+    card.dataset.sprite = entry.key;
+    const previewSrc = entry.base && entry.down[0] ? entry.base + entry.down[0] : '';
+    card.innerHTML = '<div class="thumbWrap"><img src="' + previewSrc + '" alt="' + entry.name + '"></div><span>' + entry.name + '</span>';
+    charOptionsEl.appendChild(card);
+  });
+
+  let mySprite = 'a';
+
+
+  let walkIndex = 0, walkAcc = 0, facing = 'down', turning = false;
+  const WALK_FRAME_MS = 1000 / 7;
+  // GBA MOVEMENT: state for the current in-progress tile step (see update()
+  // further down, and the STEP_SIZE constant near it, for the full writeup).
+  let stepping = false;
+  let stepFromX = 0, stepFromY = 0, stepToX = 0, stepToY = 0, stepProgress = 0;
+  // TILE FIX: SPRITE_X/SPRITE_Y = where the player's TILE (top-left of the
+  // 16x16 square at camX,camY) sits on screen. World things are placed
+  // relative to this, so the player's tile lines up with the building grid.
+  const SPRITE_X = Math.floor((W - WORLD_TILE) / 2);
+  const SPRITE_Y = Math.floor((H - WORLD_TILE) / 2);
+  // The art (SPRITE_W x SPRITE_H) is then drawn relative to the tile:
+  //   - centred horizontally on the tile
+  //   - bottom edge on the tile's bottom edge (feet on the tile), minus
+  //     SPRITE_FEET_PAD = transparent rows at the bottom of your PNG frames
+  //     (measured ~3px from your screenshot — if the feet look like they
+  //     float, raise it; if they sink into the tile, lower it).
+  const SPRITE_FEET_PAD = 3;
+  const SPRITE_ART_DX = -Math.round((SPRITE_W - WORLD_TILE) / 2);
+  const SPRITE_ART_DY = WORLD_TILE - SPRITE_H + SPRITE_FEET_PAD;
+
+  // ---------- Multiplayer (Firebase Realtime Database) ----------
+  // 1. Create a free project at https://console.firebase.google.com
+  // 2. Enable "Realtime Database" (start in test mode, then lock down rules later)
+  // 3. Paste your project's config values below
+  const firebaseConfig = {
+  apiKey: "AIzaSyBz6q7Cs2lVNn5lf2bSKKLVfI7Pb6HF3Dg",
+  authDomain: "gba-prototype.firebaseapp.com",
+  databaseURL: "https://gba-prototype-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "gba-prototype",
+  storageBucket: "gba-prototype.firebasestorage.app",
+  messagingSenderId: "1052035539915",
+  appId: "1:1052035539915:web:3e38c49b96daa2eb374c4e"
+};
+
+  let playerId = null; // set once anonymous auth completes
+  let playerRef = null, playersRef = null;
+  const remotePlayers = {};
+  const STALE_MS = 8000;
+
+  function initFirebase(){
+    const statusEl = document.getElementById('charSelectStatus');
+    try {
+      if (!firebaseConfig.apiKey || !firebaseConfig.databaseURL) {
+        statusEl.textContent = 'Multiplayer not configured (single player only)';
+        return;
+      }
+      firebase.initializeApp(firebaseConfig);
+      const db = firebase.database();
+
+      statusEl.textContent = 'Signing in…';
+      firebase.auth().onAuthStateChanged((user) => {
+        if (!user) return;
+        playerId = user.uid;
+        loadSavedCheckpoint(db, playerId); // CHECKPOINTS: spawn at saved spot instead of the random default
+        itemsInit(db); // ITEMS: start syncing/advancing the shared item slots
+        playersRef = db.ref('players');
+        playerRef = db.ref('players/' + playerId);
+        playerRef.onDisconnect().remove();
+
+        playersRef.on('value', (snap) => {
+          const val = snap.val() || {};
+          for (const id in val) {
+            if (id === playerId) continue;
+            remotePlayers[id] = val[id];
+          }
+          for (const id in remotePlayers) {
+            if (!val[id]) delete remotePlayers[id];
+          }
+          updateChatCleanupOwnership(Object.keys(val).length);
+        });
+
+        initChat(db);
+        statusEl.textContent = 'Connected';
+      });
+      firebase.auth().signInAnonymously().catch((err) => {
+        console.error('Anonymous sign-in failed:', err);
+        statusEl.textContent = 'Offline (multiplayer unavailable)';
+      });
+    } catch (err) {
+      console.error('Firebase init failed:', err);
+      statusEl.textContent = 'Offline (multiplayer unavailable)';
+    }
+  }
+  initFirebase();
+
+  // ---------- Global chat ----------
+  // Messages live at chat/{pushId}. Whichever connected client currently
+  // sees itself as "the only player online" stages a chat.remove() on its
+  // own onDisconnect — so the log auto-wipes the instant the last person
+  // actually leaves, with nothing left behind and no cleanup job to run.
+  const chatPanel = document.getElementById('chatPanel');
+  const chatLog = document.getElementById('chatLog');
+  const chatInput = document.getElementById('chatInput');
+  const PLAYER_COLORS = ['#ff6b6b', '#6bc7ff', '#7CFC9E', '#ffd166', '#c792ea', '#ff9f6b', '#6bffef', '#ff6bd0'];
+  let chatRef = null;
+  let ownsChatCleanup = false;
+  let manualChatOpen = false;      // toggled by the 💬 button, stays open until tapped again
+  let autoShowActive = false;      // true while a "someone just typed" 5s window is running
+  let autoShowTimer = null;
+  const chatAttachedAt = Date.now(); // used to ignore the initial 50-message backlog on load
+
+  function colorForUid(uid){
+    let h = 0;
+    for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) >>> 0;
+    return PLAYER_COLORS[h % PLAYER_COLORS.length];
+  }
+  function nameForUid(uid){ return 'P-' + uid.slice(-4).toUpperCase(); }
+
+  function renderChat(val){
+    chatLog.innerHTML = '';
+    Object.values(val || {}).sort((a, b) => (a.t || 0) - (b.t || 0)).forEach((m) => {
+      const row = document.createElement('div');
+      row.className = 'msg';
+      const who = document.createElement('span');
+      who.className = 'who';
+      who.style.color = colorForUid(m.uid || '');
+      who.textContent = (m.uid ? nameForUid(m.uid) : '???') + ':';
+      row.appendChild(who);
+      row.appendChild(document.createTextNode(' ' + (m.text || '')));
+      chatLog.appendChild(row);
+    });
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  function updateChatVisibility(){
+    chatPanel.classList.toggle('show', manualChatOpen || autoShowActive);
+  }
+
+  // Restart (or start) the 5-second "someone just messaged" window. Any new
+  // message — from anyone — resets this timer, so the panel only fades away
+  // once 5 full seconds pass with nobody sending anything.
+  function bumpAutoShow(){
+    autoShowActive = true;
+    updateChatVisibility();
+    clearTimeout(autoShowTimer);
+    autoShowTimer = setTimeout(() => {
+      autoShowActive = false;
+      autoShowTimer = null;
+      updateChatVisibility();
+    }, 5000);
+  }
+
+  function initChat(db){
+    chatRef = db.ref('chat');
+    chatRef.limitToLast(50).on('value', (snap) => renderChat(snap.val()));
+    // Only react to messages that arrive AFTER we connected, so loading the
+    // existing 50-message backlog on join doesn't itself pop the panel open.
+    chatRef.limitToLast(50).on('child_added', (snap) => {
+      const m = snap.val();
+      if (m && m.t && m.t > chatAttachedAt) bumpAutoShow();
+    });
+  }
+
+  function updateChatCleanupOwnership(playerCount){
+    if (!chatRef) return;
+    const shouldOwn = playerCount <= 1; // true once I'm the only one left
+    if (shouldOwn && !ownsChatCleanup) {
+      ownsChatCleanup = true;
+      chatRef.onDisconnect().remove();
+    } else if (!shouldOwn && ownsChatCleanup) {
+      ownsChatCleanup = false;
+      chatRef.onDisconnect().cancel();
+    }
+  }
+
+  function sendChatMessage(){
+    const text = chatInput.value.trim();
+    if (!text || !chatRef || !playerId) return;
+    chatInput.value = '';
+    chatRef.push({ uid: playerId, text: text.slice(0, 200), t: firebase.database.ServerValue.TIMESTAMP });
+  }
+
+  document.getElementById('btnChatToggle').addEventListener('click', () => {
+    manualChatOpen = !manualChatOpen;
+    updateChatVisibility();
+  });
+  document.getElementById('chatSendBtn').addEventListener('click', sendChatMessage);
+  chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChatMessage(); });
+
+
+  function startNetworkSync(){
+    setInterval(() => {
+      if (!playerRef) return; // auth may still be completing
+      playerRef.set({
+        x: camX, y: camY,
+        facing: facing, walkIndex: walkIndex,
+        sprite: mySprite,
+        zone: currentZone,
+        t: Date.now()
+      });
+    }, 100);
+  }
+
+  // ---------- Sprite code locks ----------
+  // The real code for a locked sprite is never sent to the browser and never
+  // stored in this file. The player's guess is hashed locally, then the
+  // browser tries to WRITE that hash to unlockCheck/{their-uid}/{sprite}.
+  // A Firebase security rule only allows that write if the hash matches the
+  // one YOU stored (server-side only, unreadable to clients) at
+  // config/spriteLocks/{sprite}. A wrong guess is rejected with
+  // "permission denied" and reveals nothing. A small attempts counter also
+  // throttles repeated guessing from the same device.
+  const MAX_UNLOCK_ATTEMPTS = 20;
+  const unlockedSprites = new Set();
+
+  async function sha256Hex(str){
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function attemptUnlock(spriteKey, code){
+    if (!playerId) return { ok: false, msg: 'Still connecting… try again in a sec' };
+    const db = firebase.database();
+    const attemptsRef = db.ref('unlockAttempts/' + playerId + '/' + spriteKey);
+    try {
+      const snap = await attemptsRef.once('value');
+      const nextCount = (snap.val() || 0) + 1;
+      if (nextCount > MAX_UNLOCK_ATTEMPTS) {
+        return { ok: false, msg: 'Too many attempts on this device.' };
+      }
+      await attemptsRef.set(nextCount);
+    } catch (err) {
+      return { ok: false, msg: 'Too many attempts on this device.' };
+    }
+    const hash = await sha256Hex(code);
+    try {
+      await db.ref('unlockCheck/' + playerId + '/' + spriteKey).set(hash);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, msg: 'Incorrect code' };
+    }
+  }
+
+  // ---------- Character select ----------
+  const codeGate = document.getElementById('codeGate');
+  const codeGateInput = document.getElementById('codeGateInput');
+  const codeGateMsg = document.getElementById('codeGateMsg');
+  const codeGateLabel = document.getElementById('codeGateLabel');
+  let pendingLockedSprite = null;
+
+  function selectSprite(el){
+    document.querySelectorAll('.charOption').forEach(o => o.classList.remove('selected'));
+    el.classList.add('selected');
+    mySprite = el.dataset.sprite;
+    document.getElementById('btnStartGame').disabled = false;
+    codeGate.classList.remove('show');
+  }
+
+  document.querySelectorAll('.charOption').forEach((el) => {
+    if (LOCKED_SPRITES.includes(el.dataset.sprite)) el.classList.add('locked');
+    el.addEventListener('click', () => {
+      const key = el.dataset.sprite;
+      if (LOCKED_SPRITES.includes(key) && !unlockedSprites.has(key)) {
+        pendingLockedSprite = key;
+        codeGateLabel.textContent = 'Enter code for Sprite ' + key.toUpperCase();
+        codeGateMsg.textContent = '';
+        codeGateInput.value = '';
+        codeGate.classList.add('show');
+        codeGateInput.focus();
+        return;
+      }
+      selectSprite(el);
+    });
+  });
+
+  document.getElementById('codeGateSubmit').addEventListener('click', async () => {
+    if (!pendingLockedSprite) return;
+    const code = codeGateInput.value.trim();
+    if (!code) return;
+    codeGateMsg.style.color = '#eafbe6';
+    codeGateMsg.textContent = 'Checking…';
+    const result = await attemptUnlock(pendingLockedSprite, code);
+    if (result.ok) {
+      unlockedSprites.add(pendingLockedSprite);
+      const el = document.querySelector('.charOption[data-sprite="' + pendingLockedSprite + '"]');
+      el.classList.add('unlocked');
+      codeGate.classList.remove('show');
+      selectSprite(el);
+    } else {
+      codeGateMsg.style.color = '#ff8b8b';
+      codeGateMsg.textContent = result.msg;
+    }
+  });
+  document.getElementById('btnStartGame').addEventListener('click', () => {
+    document.getElementById('charSelect').style.display = 'none';
+    startNetworkSync();
+    requestAnimationFrame(loop);
+  });
+
+  // =====================================================================
+  //  GBA MOVEMENT — ported from how Pokemon (GBA) moves the player:
+  //  1. Pressing a NEW direction just turns you to face it for one frame
+  //     (no movement yet) — that "turning" behavior already existed here.
+  //  2. Holding/pressing it again moves you exactly one whole tile
+  //     (STEP_SIZE world px). You cannot stop, or be stopped, mid-tile —
+  //     a step is all-or-nothing.
+  //  3. No diagonals: only one of up/down/left/right is ever acted on.
+  //  4. The destination tile is collision-checked ONCE, before the step
+  //     starts, as a single whole-tile decision (open or blocked) — never
+  //     re-checked pixel-by-pixel while sliding into it.
+  //  Point 4 is what fixes the "half open / half closed" hitbox bug: the
+  //  old code moved 1px at a time and re-ran the collision check every
+  //  single pixel, so a player could end up parked exactly on the
+  //  boundary line between an open pixel column and a blocked one. That
+  //  can't happen anymore — you're either standing on the tile you
+  //  started on, or you've fully arrived on the next one.
+  // =====================================================================
+  const STEP_SIZE = 16; // GBA MOVEMENT: world-px distance covered by one step (GBA's overworld tile size)
+
+  function update(){
+    if (entering){
+      // WORLD ASSETS: mid placeholder enter-sequence — ignore all input
+      // until it finishes (see updateEnterSequence() in the WORLD ASSETS block).
+      updateEnterSequence();
+      return;
+    }
+
+    const moveDir = keys[facing] ? facing : (keys.up ? 'up' : (keys.down ? 'down' : (keys.left ? 'left' : (keys.right ? 'right' : null))));
+
+    if (stepping){
+      // GBA MOVEMENT: mid-step — keep sliding toward the tile we already
+      // committed to. Input is ignored until this step finishes, exactly
+      // like Pokemon GBA (you can't change direction mid-tile).
+      stepProgress += SPEED / STEP_SIZE;
+      walkAcc += 1000 / 60;
+      if (walkAcc >= WALK_FRAME_MS){
+        walkAcc -= WALK_FRAME_MS;
+        walkIndex = (walkIndex + 1) % 4;
+      }
+      if (stepProgress >= 1){
+        camX = stepToX; camY = stepToY; // snap exactly onto the tile, no overshoot/rounding drift
+        stepping = false; stepProgress = 0;
+        // WORLD ASSETS / INTERIORS: just arrived on a new tile — if it's a
+        // doorway (outdoors) or the exit tile (indoors), kick off the
+        // enter/exit sequence (see beginEnter() in the WORLD ASSETS block).
+        const enterBlock = findEnterBlockUnderPlayer();
+        if (enterBlock) beginEnter(enterBlock);
+      } else {
+        camX = stepFromX + (stepToX - stepFromX) * stepProgress;
+        camY = stepFromY + (stepToY - stepFromY) * stepProgress;
+      }
+      return;
+    }
+
+    if (!moveDir){
+      walkIndex = 0; walkAcc = 0; turning = false;
+      return;
+    }
+
+    if (facing !== moveDir){
+      // GBA MOVEMENT: first press of a new direction only turns you to face
+      // it — no movement this frame.
+      facing = moveDir; turning = true; walkIndex = 0; walkAcc = 0;
+      return;
+    }
+    if (turning){
+      turning = false;
+      return;
+    }
+
+    // GBA MOVEMENT: attempt exactly one whole-tile step in the facing
+    // direction. Checked against both other players AND world objects
+    // (buildings, trees, etc.) as a single before/after whole-tile test —
+    // see collidesWithOthers() and, for world assets, collidesWithWorldAssets().
+    let tx = camX, ty = camY;
+    if (facing === 'left') tx -= STEP_SIZE;
+    if (facing === 'right') tx += STEP_SIZE;
+    if (facing === 'up') ty -= STEP_SIZE;
+    if (facing === 'down') ty += STEP_SIZE;
+
+    if (!collidesWithOthers(camX, camY, tx, ty) && !collidesWithWorldAssets(tx, ty) && !collidesWithItems(tx, ty)){ // ITEMS: added collidesWithItems(tx, ty)
+      stepFromX = camX; stepFromY = camY;
+      stepToX = tx; stepToY = ty;
+      stepProgress = 0;
+      stepping = true;
+    } else {
+      // Blocked: stand still facing that direction, same as bumping a wall in GBA.
+      walkIndex = 0; walkAcc = 0;
+    }
+  }
+
+  function drawSpriteAt(spriteKey, dir, frameIdx, px, py){
+    const set = animsBySprite[spriteKey] || animsBySprite.a;
+    const dirAnim = set[dir] || set.down;
+    const frame = dirAnim[frameIdx] || dirAnim[0];
+    if (frame && frame.complete && frame.naturalWidth > 0){
+      ctx.drawImage(frame, px, py, SPRITE_W, SPRITE_H);
+    }
+  }
+
+  function draw(){
+    if (currentZone === 'overworld'){
+      const startTX = Math.floor(camX / TILE) - 1;
+      const startTY = Math.floor(camY / TILE) - 1;
+      const tilesX = Math.ceil(W / TILE) + 2;
+      const tilesY = Math.ceil(H / TILE) + 2;
+      const offX = -(camX - startTX * TILE);
+      const offY = -(camY - startTY * TILE);
+
+      for (let j = 0; j < tilesY; j++){
+        const ty = startTY + j, py = Math.round(offY + j * TILE);
+        for (let i = 0; i < tilesX; i++){
+          const tx = startTX + i, px = Math.round(offX + i * TILE);
+          const c = tileColor(tx, ty);
+          ctx.fillStyle = 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+          ctx.fillRect(px, py, TILE, TILE);
+        }
+      }
+    } else {
+      // INTERIORS: plain black void everywhere — the room's own floor/wall
+      // blocks (drawn below, from INTERIOR_BLOCKS) are what actually shows;
+      // anything outside the room's rows/cols just stays void, same as
+      // stepping outside a GBA interior's mapped bounds.
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    drawCheckpoints(); // CHECKPOINTS: delete this line if removing the feature (overworld-only, see drawCheckpoints)
+    ludoDrawSpot(); // LUDO: delete this line if removing the minigame
+
+    // LAYERING (y-sort): blocks and players are drawn together, top row to
+    // bottom row. A block in a row ABOVE (north of) a player is drawn first,
+    // so the player stands in front of it; a block in a row BELOW (south of)
+    // a player is drawn after, so it covers him (roof over your head when you
+    // walk behind a shop). Blocks with overPlayer:true always go on top.
+    const drawList = [];
+    for (const b of activeBlocks()){
+      if (b.conflicted) continue; // WORLD ASSETS: overlapping placement — render nothing until it's fixed
+      drawList.push({ k: b.overPlayer ? 1e9 : b.y, fn: () => drawWorldBlock(b) });
+    }
+    if (currentZone === 'overworld'){ // ITEMS: overworld-only, see block header
+      for (const s of itemSlots){
+        if (!s || s.collected) continue;
+        drawList.push({ k: s.y, fn: () => drawItemAt(s) });
+      }
+    }
+    const now = Date.now();
+    for (const id in remotePlayers){
+      const p = remotePlayers[id];
+      // Only draw players who are in the same zone as me — someone else
+      // browsing the overworld shouldn't appear inside my interior, and
+      // vice versa (their `zone` field comes from startNetworkSync()).
+      if (!p || now - (p.t || 0) > STALE_MS || (p.zone || 'overworld') !== currentZone) continue;
+      const px = Math.round(SPRITE_X + (p.x - camX)) + SPRITE_ART_DX;
+      const py = Math.round(SPRITE_Y + (p.y - camY)) + SPRITE_ART_DY;
+      if (px > -SPRITE_W && px < W && py > -SPRITE_H && py < H){
+        drawList.push({ k: p.y + 0.5, fn: () => drawSpriteAt(p.sprite || 'a', p.facing || 'down', p.walkIndex || 0, px, py) });
+      }
+    }
+    // Local player (always centered on screen); +0.51 so on a tie he draws above other players
+    drawList.push({ k: camY + 0.51, fn: () => drawSpriteAt(mySprite, facing, walkIndex, SPRITE_X + SPRITE_ART_DX, SPRITE_Y + SPRITE_ART_DY) });
+    drawList.sort((a, b) => a.k - b.k);
+    for (const item of drawList) item.fn();
+
+    ludoDrawPrompt(); // LUDO: delete this line if removing the minigame
+    drawEnterOverlay(); // WORLD ASSETS: delete this line if removing the feature — must stay last so it covers everything else
+
+    document.getElementById('coords').textContent = 'x:' + Math.round(camX) + ' y:' + Math.round(camY);
+  }
+
+  // =====================================================================
+  //  LUDO MINIGAME — BEGIN   (temporary, fully self-contained)
+  //
+  //  What it is: two floor tiles ("seats") near the spawn point. Stand on
+  //  either one and press A to sit down at a 2-player Ludo table. You wait
+  //  there until someone else sits on the other seat; only then can dice
+  //  be rolled. B leaves at any time (asks "are you sure?" mid-game).
+  //  Controls inside the game: A = roll / confirm, D-pad left/right = pick
+  //  which token to move, B = leave. It draws straight onto the game
+  //  canvas, so there is no HTML and no CSS to clean up.
+  //
+  //  HOW TO REMOVE IT COMPLETELY (nothing else in the file depends on it):
+  //   1. Delete everything from this "LUDO MINIGAME — BEGIN" line down to
+  //      the "LUDO MINIGAME — END" line.
+  //   2. Delete the 3 one-line hooks that end in "// LUDO: ..." — two
+  //      inside draw() and one at the top of loop().
+  //   3. Firebase console -> Realtime Database: delete the "ludo" node in
+  //      Data, and delete the "ludo" entry you added in Rules.
+  //   Then search the file for "LUDO" / "ludo": zero matches means clean.
+  //
+  //  FIREBASE RULE NEEDED (Rules tab, next to your existing "players" /
+  //  "chat" entries — without it the table just says it is blocked):
+  //      "ludo": { ".read": "auth != null", ".write": "auth != null" }
+  //
+  //  Data lives at ludo/<LUDO_TABLE>/{seats:{s0,s1}, game:{...}}. When the
+  //  last player leaves, the whole node deletes itself.
+  // =====================================================================
+  const LUDO_TILES = [{ x: -48, y: 0 }, { x: -32, y: 0 }]; // the two seat tiles (world px, multiples of 16). Keep them OFF the white checkpoint squares.
+  const LUDO_TABLE = 'table1';   // Firebase path: ludo/<this>
+  const LUDO_ROLL_MS = 550;      // dice "tumble" time before the result is written
+  const LUDO_AUTO_MS = 650;      // when only one token can move, it moves itself after this long
+
+  // Standard Ludo geometry on a 15x15 grid: a 52-square loop, each colour's
+  // start square, and star squares where tokens can't be captured.
+  const LUDO_PATH = (() => {
+    const P = [];
+    for (let c = 0; c <= 5; c++) P.push([c, 6]);
+    for (let r = 5; r >= 0; r--) P.push([6, r]);
+    P.push([7, 0], [8, 0]);
+    for (let r = 1; r <= 5; r++) P.push([8, r]);
+    for (let c = 9; c <= 14; c++) P.push([c, 6]);
+    P.push([14, 7], [14, 8]);
+    for (let c = 13; c >= 9; c--) P.push([c, 8]);
+    for (let r = 9; r <= 14; r++) P.push([8, r]);
+    P.push([7, 14], [6, 14]);
+    for (let r = 13; r >= 9; r--) P.push([6, r]);
+    for (let c = 5; c >= 0; c--) P.push([c, 8]);
+    P.push([0, 7]);
+    return P; // 52 cells
+  })();
+  const LUDO_START = [1, 27];                 // loop index each seat starts on: seat0 = RED (left arm), seat1 = YELLOW (right arm)
+  const LUDO_ALL_STARTS = [1, 14, 27, 40];    // red, green, yellow, blue — for drawing the board
+  const LUDO_STARS = [9, 22, 35, 48];
+  const LUDO_SAFE = new Set([1, 9, 14, 22, 27, 35, 40, 48]);
+  const LUDO_HOMECOL = [
+    [[1, 7], [2, 7], [3, 7], [4, 7], [5, 7]],        // seat0: progress 51..55
+    [[13, 7], [12, 7], [11, 7], [10, 7], [9, 7]]     // seat1
+  ];
+  const LUDO_HOMEPOS = [[6, 7], [8, 7]];              // progress 56 = home (centre)
+  const LUDO_BASE = [
+    [[1, 1], [4, 1], [1, 4], [4, 4]],
+    [[10, 10], [13, 10], [10, 13], [13, 13]]
+  ];
+  const LUDO_COL = ['#e0463b', '#3ba54a', '#f2c84b', '#3b7be0']; // red, green, yellow, blue
+  const LUDO_SEAT_COL = [LUDO_COL[0], LUDO_COL[2]];
+  const LUDO_SHORT = ['RED', 'YEL'];
+
+  const L = {
+    open: false, joining: false, ref: null, cb: null, seat: 0,
+    data: null, g: null, hadOpp: false, creating: false,
+    sel: 0, rollUntil: 0, rollTimer: null, autoTimer: null, confirm: false,
+    notice: '', noticeUntil: 0, toast: '', toastUntil: 0
+  };
+  function ludoSay(t){ L.notice = t; L.noticeUntil = Date.now() + 3500; }
+  function ludoToast(t){ L.toast = t; L.toastUntil = Date.now() + 2500; }
+
+  // ---------- game state (stored as small strings so Firebase never turns them into weird arrays) ----------
+  function ludoNewGame(){
+    return { turn: Math.random() < 0.5 ? 0 : 1, phase: 'roll', dice: 0,
+             tk: [[-1, -1, -1, -1], [-1, -1, -1, -1]], n: 0, win: -1, msg: '' };
+  }
+  function ludoPack(g){
+    return { turn: g.turn, phase: g.phase, dice: g.dice, tk: g.tk.map((a) => a.join(',')).join(';'),
+             n: g.n, win: g.win, msg: g.msg || '' };
+  }
+  function ludoParse(raw){
+    if (!raw || typeof raw.tk !== 'string') return null;
+    const tk = raw.tk.split(';').map((s) => s.split(',').map(Number));
+    if (tk.length !== 2 || tk.some((a) => a.length !== 4 || a.some(Number.isNaN))) return null;
+    return { turn: raw.turn | 0, phase: raw.phase || 'roll', dice: raw.dice | 0, tk,
+             n: raw.n | 0, win: raw.win == null ? -1 : raw.win | 0, msg: raw.msg || '' };
+  }
+
+  // A token's progress: -1 = in base, 0..50 = on the loop (0 is its start square),
+  // 51..55 = up its home column, 56 = home.
+  function ludoLegal(tk, seat, d){
+    const out = [];
+    for (let i = 0; i < 4; i++){
+      const p = tk[seat][i];
+      if (p === -1){ if (d === 6) out.push(i); }
+      else if (p < 56 && p + d <= 56) out.push(i);
+    }
+    return out;
+  }
+  function ludoApply(g, seat, i){
+    const t = g.tk.map((a) => a.slice());
+    const d = g.dice;
+    const to = t[seat][i] === -1 ? 0 : t[seat][i] + d;
+    t[seat][i] = to;
+    let note = '';
+    if (to <= 50){
+      const cell = (LUDO_START[seat] + to) % 52;
+      if (!LUDO_SAFE.has(cell)){
+        const opp = 1 - seat;
+        for (let j = 0; j < 4; j++){
+          const q = t[opp][j];
+          if (q >= 0 && q <= 50 && (LUDO_START[opp] + q) % 52 === cell){ t[opp][j] = -1; note = 'CAPTURE!'; }
+        }
+      }
+    } else if (to === 56){ note = 'HOME!'; }
+    const won = t[seat].every((p) => p === 56);
+    const bonus = d === 6 && !won;
+    return { turn: (won || bonus) ? seat : 1 - seat, phase: won ? 'over' : 'roll', dice: d, tk: t,
+             n: g.n + 1, win: won ? seat : -1, msg: won ? '' : (note || (bonus ? 'ROLL AGAIN' : '')) };
+  }
+  function ludoCellOf(seat, p, i){
+    if (p < 0) return LUDO_BASE[seat][i];
+    if (p <= 50) return LUDO_PATH[(LUDO_START[seat] + p) % 52];
+    if (p <= 55) return LUDO_HOMECOL[seat][p - 51];
+    return LUDO_HOMEPOS[seat];
+  }
+
+  // ---------- networking ----------
+  function ludoWrite(g){
+    L.ref.child('game').set(ludoPack(g)).catch(() => ludoSay('SYNC ERROR'));
+  }
+  function ludoStop(){
+    L.open = false; L.g = null; L.data = null; L.confirm = false; L.hadOpp = false; L.creating = false;
+    clearTimeout(L.rollTimer); L.rollTimer = null;
+    clearTimeout(L.autoTimer); L.autoTimer = null;
+  }
+  function ludoClose(msg){            // leave locally only (connection lost etc.)
+    if (L.ref && L.cb) L.ref.off('value', L.cb);
+    ludoStop();
+    if (msg) ludoToast(msg);
+  }
+  function ludoLeave(){               // B (confirmed): give up the seat and tidy the database
+    if (!L.open) return;
+    const ref = L.ref, key = 's' + L.seat;
+    ludoStop();                       // flips L.open off first so our own listener ignores what follows
+    ref.off('value', L.cb);
+    try { ref.child('seats/' + key).onDisconnect().cancel(); } catch (e) {}
+    ref.transaction((cur) => {
+      if (!cur) return cur;
+      const seats = Object.assign({}, cur.seats || {});
+      if (seats[key] === playerId) delete seats[key];
+      if (!seats.s0 && !seats.s1) return null;   // last one out: delete the whole table, no residue
+      return { seats };                           // someone is still here: any running game is dropped
+    });
+  }
+  function ludoOnData(snap){
+    if (!L.open) return;
+    L.data = snap.val() || {};
+    const seats = L.data.seats || {};
+    if (seats['s' + L.seat] !== playerId){ ludoClose('LUDO: CONNECTION LOST'); return; }
+    const hasOpp = !!seats['s' + (1 - L.seat)];
+    if (hasOpp && !L.hadOpp) ludoSay('PLAYER JOINED!');
+    if (!hasOpp && L.hadOpp) ludoSay('OPPONENT LEFT');
+    L.hadOpp = hasOpp;
+    const g = ludoParse(L.data.game);
+    if (!hasOpp){
+      L.g = null;
+      if (L.data.game) L.ref.child('game').remove();          // stale/aborted game from before — clear it
+    } else {
+      if (g && (!L.g || g.n !== L.g.n)) L.sel = 0;
+      L.g = g;
+      if (!g && L.seat === 0 && !L.creating){                 // both seated, no game yet: seat 0 deals it once
+        L.creating = true;
+        L.ref.child('game').transaction((cur) => cur || ludoPack(ludoNewGame()), () => { L.creating = false; }, false);
+      }
+    }
+    if (!L.g || L.g.phase === 'over') L.confirm = false;
+  }
+
+  function ludoOnSpot(){
+    // LUDO: the seat tiles are OVERWORLD-only. Every interior has its own
+    // separate local coordinate space (starting fresh at 0,0 — see
+    // currentZone / INTERIOR_ROSTER), so an interior's tiles can land on
+    // the same numeric x/y as these seats purely by coincidence. Without
+    // this zone check, that coincidence would leak the overworld's Ludo
+    // table into an interior's own isolated void. Each zone's void stays
+    // its own — this is what keeps them from bleeding into each other.
+    return currentZone === 'overworld' && !stepping && !entering && LUDO_TILES.some((t) => camX === t.x && camY === t.y);
+  }
+  function ludoTryEnter(){
+    if (currentZone !== 'overworld') return; // LUDO: overworld-only, see ludoOnSpot()
+    if (document.getElementById('charSelect').style.display !== 'none') return; // still on the character-select screen
+    if (L.open || L.joining || !ludoOnSpot()) return;
+    if (!playerId || typeof firebase === 'undefined' || !firebase.apps || !firebase.apps.length){
+      ludoToast('LUDO NEEDS MULTIPLAYER'); return;
+    }
+    L.joining = true;
+    const ref = firebase.database().ref('ludo/' + LUDO_TABLE);
+    ref.child('seats').transaction((cur) => {
+      cur = cur || {};
+      if (cur.s0 === playerId || cur.s1 === playerId) return cur;   // still holding my own seat from a quick reload
+      if (!cur.s0){ cur.s0 = playerId; return cur; }
+      if (!cur.s1){ cur.s1 = playerId; return cur; }
+      return undefined;                                              // table full: abort
+    }, (err, committed, snap) => {
+      L.joining = false;
+      if (err){ ludoToast('LUDO BLOCKED: ADD DB RULE'); return; }
+      if (!committed){ ludoToast('TABLE IS FULL'); return; }
+      const seats = snap.val() || {};
+      L.ref = ref; L.seat = seats.s0 === playerId ? 0 : 1;
+      L.g = null; L.data = null; L.hadOpp = false; L.creating = false; L.confirm = false; L.sel = 0;
+      L.notice = ''; L.noticeUntil = 0;
+      L.open = true;
+      ref.child('seats/s' + L.seat).onDisconnect().remove();        // closing the tab frees the seat
+      L.cb = ref.on('value', ludoOnData, () => ludoClose('LUDO BLOCKED: ADD DB RULE'));
+    }, false);
+  }
+
+  // ---------- turns ----------
+  function ludoRoll(){
+    const g = L.g;
+    if (!g || g.phase !== 'roll' || g.turn !== L.seat || L.rollTimer) return;
+    const n = g.n;
+    L.rollUntil = Date.now() + LUDO_ROLL_MS;
+    L.rollTimer = setTimeout(() => {
+      L.rollTimer = null;
+      const cur = L.g;
+      if (!L.open || !cur || cur.n !== n || cur.phase !== 'roll' || cur.turn !== L.seat) return;
+      const d = 1 + Math.floor(Math.random() * 6);
+      const legal = ludoLegal(cur.tk, L.seat, d);
+      const ng = legal.length
+        ? { turn: cur.turn, phase: 'move', dice: d, tk: cur.tk, n: n + 1, win: -1, msg: '' }
+        : { turn: 1 - cur.turn, phase: 'roll', dice: d, tk: cur.tk, n: n + 1, win: -1, msg: 'NO MOVE' };
+      L.g = ng; L.sel = 0;
+      ludoWrite(ng);
+    }, LUDO_ROLL_MS);
+  }
+  function ludoCommit(i){
+    const g = L.g;
+    if (!g || g.phase !== 'move' || g.turn !== L.seat) return;
+    clearTimeout(L.autoTimer); L.autoTimer = null;
+    const ng = ludoApply(g, L.seat, i);
+    L.g = ng; L.sel = 0;            // optimistic: prevents a double-press from moving twice
+    ludoWrite(ng);
+  }
+  function ludoTick(){
+    const g = L.g;
+    if (!g || L.confirm || g.phase !== 'move' || g.turn !== L.seat || L.autoTimer) return;
+    const legal = ludoLegal(g.tk, L.seat, g.dice);
+    if (legal.length !== 1) return;
+    const n = g.n;
+    L.autoTimer = setTimeout(() => {
+      L.autoTimer = null;
+      if (L.open && L.g && L.g.n === n && L.g.phase === 'move' && L.g.turn === L.seat && !L.confirm) ludoCommit(legal[0]);
+    }, LUDO_AUTO_MS);
+  }
+
+  // ---------- input ----------
+  function ludoInputA(){
+    if (!L.open){ ludoTryEnter(); return; }
+    if (L.confirm){ ludoLeave(); return; }
+    const g = L.g;
+    if (!g) return;                                   // still waiting for an opponent: no dice yet
+    if (g.phase === 'over'){
+      L.ref.child('game').transaction((cur) => (cur && cur.phase === 'over') ? ludoPack(ludoNewGame()) : cur, null, false);
+      return;
+    }
+    if (g.turn !== L.seat) return;
+    if (g.phase === 'roll') ludoRoll();
+    else if (g.phase === 'move'){
+      const legal = ludoLegal(g.tk, L.seat, g.dice);
+      if (legal.length) ludoCommit(legal[L.sel % legal.length]);
+    }
+  }
+  function ludoInputB(){
+    if (!L.open) return;
+    if (L.confirm){ L.confirm = false; return; }
+    if (L.g && L.g.phase !== 'over'){ L.confirm = true; return; }   // mid-game: ask first
+    ludoLeave();
+  }
+  function ludoInputNav(dir){
+    const g = L.g;
+    if (!L.open || !g || g.phase !== 'move' || g.turn !== L.seat) return;
+    const legal = ludoLegal(g.tk, L.seat, g.dice);
+    if (legal.length > 1) L.sel = (L.sel + dir + legal.length) % legal.length;
+  }
+  function ludoTyping(){
+    const a = document.activeElement;
+    return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA');
+  }
+  document.getElementById('btnA').addEventListener('pointerdown', () => ludoInputA());
+  document.getElementById('btnB').addEventListener('pointerdown', () => ludoInputB());
+  document.getElementById('left').addEventListener('pointerdown', () => ludoInputNav(-1));
+  document.getElementById('up').addEventListener('pointerdown', () => ludoInputNav(-1));
+  document.getElementById('right').addEventListener('pointerdown', () => ludoInputNav(1));
+  document.getElementById('down').addEventListener('pointerdown', () => ludoInputNav(1));
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat || ludoTyping()) return;
+    if (e.key === 'a' || e.key === 'z' || e.key === 'Enter') ludoInputA();
+    else if (e.key === 'b' || e.key === 'x' || e.key === 'Escape') ludoInputB();
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ludoInputNav(-1);
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') ludoInputNav(1);
+  });
+
+  // ---------- drawing: the seats out in the world ----------
+  function ludoDrawSpot(){
+    if (currentZone !== 'overworld') return; // LUDO: overworld-only — never draw into an interior's own isolated void, see ludoOnSpot()
+    for (const t of LUDO_TILES){
+      const px = Math.round(SPRITE_X + (t.x - camX));
+      const py = Math.round(SPRITE_Y + (t.y - camY));
+      if (px <= -16 || px >= W || py <= -16 || py >= H) continue;
+      ctx.fillStyle = '#2a2a2a'; ctx.fillRect(px, py, 16, 16);
+      ctx.fillStyle = '#f4f1e6'; ctx.fillRect(px + 1, py + 1, 14, 14);
+      ctx.fillStyle = LUDO_COL[0]; ctx.fillRect(px + 2, py + 2, 5, 5);
+      ctx.fillStyle = LUDO_COL[1]; ctx.fillRect(px + 9, py + 2, 5, 5);
+      ctx.fillStyle = LUDO_COL[3]; ctx.fillRect(px + 2, py + 9, 5, 5);
+      ctx.fillStyle = LUDO_COL[2]; ctx.fillRect(px + 9, py + 9, 5, 5);
+      ctx.fillStyle = '#2a2a2a'; ctx.fillRect(px + 6, py + 6, 4, 4);
+    }
+  }
+  function ludoDrawPrompt(){                 // small hint / message pill at the bottom of the screen
+    let txt = '';
+    if (Date.now() < L.toastUntil) txt = L.toast;
+    else if (ludoOnSpot() && !L.open) txt = 'A: PLAY LUDO';
+    if (!txt) return;
+    ctx.font = 'bold 8px monospace'; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    const w = Math.ceil(ctx.measureText(txt).width) + 12;
+    ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(Math.round((W - w) / 2), H - 18, w, 12);
+    ctx.fillStyle = '#fff'; ctx.fillText(txt, W / 2, H - 12);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  }
+
+  // ---------- drawing: the Ludo screen ----------
+  function ludoFrame(){                      // returns true while the Ludo screen owns the display
+    if (!L.open) return false;
+    ludoTick();
+    ludoDraw();
+    return true;
+  }
+  function ludoDraw(){
+    const bx = 4, by = 5, cs = 10;
+    const cell = (c, r, col, a) => {
+      ctx.globalAlpha = a == null ? 1 : a; ctx.fillStyle = col;
+      ctx.fillRect(bx + c * cs, by + r * cs, cs, cs); ctx.globalAlpha = 1;
+    };
+    const used = (colIdx) => colIdx === 0 || colIdx === 2;      // red & yellow are the two seats
+    ctx.fillStyle = '#16241c'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#f4f1e6'; ctx.fillRect(bx, by, cs * 15, cs * 15);
+
+    // corner bases
+    [[0, 0], [9, 0], [9, 9], [0, 9]].forEach(([c, r], k) => {
+      ctx.globalAlpha = used(k) ? 1 : 0.35; ctx.fillStyle = LUDO_COL[k];
+      ctx.fillRect(bx + c * cs, by + r * cs, cs * 6, cs * 6); ctx.globalAlpha = 1;
+      ctx.fillStyle = '#f4f1e6'; ctx.fillRect(bx + (c + 1) * cs, by + (r + 1) * cs, cs * 4, cs * 4);
+    });
+    // loop squares (with each colour's start square tinted)
+    LUDO_PATH.forEach(([c, r], i) => {
+      const si = LUDO_ALL_STARTS.indexOf(i);
+      cell(c, r, si >= 0 ? LUDO_COL[si] : '#fbfaf3', si >= 0 && !used(si) ? 0.35 : 1);
+      ctx.strokeStyle = '#7a7a70'; ctx.lineWidth = 1;
+      ctx.strokeRect(bx + c * cs + 0.5, by + r * cs + 0.5, cs - 1, cs - 1);
+      if (LUDO_STARS.indexOf(i) >= 0){                             // star square = safe from capture
+        const x = bx + c * cs + cs / 2, y = by + r * cs + cs / 2;
+        ctx.fillStyle = '#3a3a3a'; ctx.beginPath();
+        ctx.moveTo(x, y - 3); ctx.lineTo(x + 3, y); ctx.lineTo(x, y + 3); ctx.lineTo(x - 3, y); ctx.closePath(); ctx.fill();
+      }
+    });
+    // home columns
+    [[LUDO_HOMECOL[0], 0], [[[7, 1], [7, 2], [7, 3], [7, 4], [7, 5]], 1],
+     [LUDO_HOMECOL[1], 2], [[[7, 9], [7, 10], [7, 11], [7, 12], [7, 13]], 3]].forEach(([cells, k]) => {
+      cells.forEach(([c, r]) => {
+        cell(c, r, LUDO_COL[k], used(k) ? 1 : 0.35);
+        ctx.strokeStyle = '#7a7a70'; ctx.strokeRect(bx + c * cs + 0.5, by + r * cs + 0.5, cs - 1, cs - 1);
+      });
+    });
+    // centre
+    const x0 = bx + 6 * cs, y0 = by + 6 * cs, x1 = bx + 9 * cs, y1 = by + 9 * cs, mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+    [[x0, y0, x0, y1, LUDO_COL[0], 0], [x0, y0, x1, y0, LUDO_COL[1], 1],
+     [x1, y0, x1, y1, LUDO_COL[2], 2], [x0, y1, x1, y1, LUDO_COL[3], 3]].forEach(([ax, ay, cx2, cy2, col, k]) => {
+      ctx.globalAlpha = used(k) ? 1 : 0.35; ctx.fillStyle = col;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(cx2, cy2); ctx.lineTo(mx, my); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+
+    // tokens
+    const g = L.g;
+    const seatsHere = [true, true];
+    const seatsData = (L.data && L.data.seats) || {};
+    seatsHere[0] = !!seatsData.s0; seatsHere[1] = !!seatsData.s1;
+    const tk = g ? g.tk : [[-1, -1, -1, -1], [-1, -1, -1, -1]];
+    const myLegal = (g && g.phase === 'move' && g.turn === L.seat) ? ludoLegal(g.tk, L.seat, g.dice) : [];
+    const picked = myLegal.length ? myLegal[L.sel % myLegal.length] : -1;
+    const stackCount = {};
+    const items = [];
+    for (let s = 0; s < 2; s++){
+      if (!seatsHere[s]) continue;
+      for (let i = 0; i < 4; i++){
+        const [c, r] = ludoCellOf(s, tk[s][i], i);
+        const key = c + ',' + r;
+        stackCount[key] = (stackCount[key] || 0) + 1;
+        items.push({ s, i, c, r, key, idx: stackCount[key] - 1 });
+      }
+    }
+    const blink = Math.floor(Date.now() / 250) % 2 === 0;
+    for (const it of items){
+      const total = stackCount[it.key];
+      const cx = bx + it.c * cs + cs / 2 + (it.idx - (total - 1) / 2) * 3;
+      const cy = by + it.r * cs + cs / 2;
+      if (tk[it.s][it.i] < 0){                                    // base slot marker
+        ctx.strokeStyle = LUDO_SEAT_COL[it.s]; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(bx + it.c * cs + cs / 2, cy, 4.6, 0, 6.2832); ctx.stroke();
+      }
+      ctx.fillStyle = LUDO_SEAT_COL[it.s];
+      ctx.beginPath(); ctx.arc(cx, cy, 3.6, 0, 6.2832); ctx.fill();
+      ctx.strokeStyle = '#1b1b1b'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fillRect(Math.round(cx - 1.5), Math.round(cy - 2), 1, 1);
+      if (it.s === L.seat && myLegal.indexOf(it.i) >= 0){
+        if (it.i === picked){ ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, 5.4, 0, 6.2832); ctx.stroke(); }
+        else if (blink){ ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, 5.2, 0, 6.2832); ctx.stroke(); }
+      }
+    }
+
+    // side panel
+    const px = 160;
+    ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+    ctx.fillStyle = '#e8f3ea'; ctx.font = 'bold 9px monospace'; ctx.fillText('LUDO', px, 5);
+    ctx.font = 'bold 8px monospace';
+    for (let s = 0; s < 2; s++){
+      const y = 17 + s * 10;
+      ctx.fillStyle = LUDO_SEAT_COL[s]; ctx.fillRect(px + 8, y + 1, 6, 6);
+      const turnHere = g && g.phase !== 'over' && g.turn === s;
+      ctx.fillStyle = seatsHere[s] ? '#e8f3ea' : '#7d8f83';
+      ctx.fillText((turnHere ? '>' : ' ') + '', px, y);
+      ctx.fillText(LUDO_SHORT[s] + ' ' + (s === L.seat ? 'YOU' : (seatsHere[s] ? 'OPP' : '---')), px + 17, y);
+    }
+    // dice
+    const dxp = 178, dyp = 44, ds = 26;
+    const rolling = Date.now() < L.rollUntil;
+    const face = rolling ? 1 + (Math.floor(Date.now() / 70) % 6) : (g ? g.dice : 0);
+    ctx.fillStyle = '#1b1b1b'; ctx.fillRect(dxp - 1, dyp - 1, ds + 2, ds + 2);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(dxp, dyp, ds, ds);
+    const pips = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] }[face] || [];
+    ctx.fillStyle = '#1b1b1b';
+    pips.forEach((p) => { ctx.fillRect(dxp + 4 + (p % 3) * 7, dyp + 4 + Math.floor(p / 3) * 7, 4, 4); });
+    if (!face){ ctx.textAlign = 'center'; ctx.fillText('?', dxp + ds / 2, dyp + 9); ctx.textAlign = 'left'; }
+
+    // status text
+    let lines = [], accent = '';
+    const myTurn = g && g.turn === L.seat;
+    if (!g && !L.hadOpp){ lines = ['WAITING FOR', 'ANOTHER', 'PLAYER...']; }
+    else if (!g){ lines = ['STARTING...']; }
+    else if (g.phase === 'over'){ lines = [g.win === L.seat ? 'YOU WIN!' : 'YOU LOSE', 'A: REMATCH']; }
+    else if (g.phase === 'roll'){ lines = myTurn ? ['YOUR TURN', 'A: ROLL'] : ['OPPONENT\'S', 'TURN...']; }
+    else { lines = myTurn ? (myLegal.length > 1 ? ['PICK TOKEN', '< > THEN A'] : ['MOVING...']) : ['OPPONENT', 'MOVING...']; }
+    if (g && g.msg) accent = g.msg;
+    if (Date.now() < L.noticeUntil) accent = L.notice;
+    ctx.fillStyle = '#e8f3ea';
+    lines.forEach((t, k) => ctx.fillText(t, px, 78 + k * 10));
+    if (accent){ ctx.fillStyle = '#ffd166'; ctx.fillText(accent, px, 118); }
+    ctx.fillStyle = '#9db5a4'; ctx.fillText('B: LEAVE', px, 146);
+
+    // leave confirmation
+    if (L.confirm){
+      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#f4f1e6'; ctx.fillRect(36, 52, 168, 58);
+      ctx.strokeStyle = '#1b1b1b'; ctx.lineWidth = 2; ctx.strokeRect(37, 53, 166, 56);
+      ctx.fillStyle = '#1b1b1b'; ctx.textAlign = 'center';
+      ctx.fillText('LEAVE THE GAME?', W / 2, 60);
+      ctx.fillText('THE GAME WILL END.', W / 2, 73);
+      ctx.fillText('A: YES      B: NO', W / 2, 92);
+      ctx.textAlign = 'left';
+    }
+  }
+  // =====================================================================
+  //  LUDO MINIGAME — END
+  // =====================================================================
+
+  function loop(){
+    if (ludoFrame()) { requestAnimationFrame(loop); return; } // LUDO: delete this line if removing the minigame
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+  // Loop is kicked off once the player picks a sprite and hits START (see character select above)
+})();
+</script>
+</body>
+</html>
